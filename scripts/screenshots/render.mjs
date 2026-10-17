@@ -12,7 +12,7 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(here, '../..');
 const out = (m) => require(path.join(root, 'out/src', m));
 const { parseStatusV2, parseLog, parseRemotes, parseBranches, changedPathCount, LOG_FORMAT, BRANCH_FORMAT } = out('git/parse.js');
-const COLORS = { specialNames: ['main'], special: '#b180d7', other: '#e535ab', local: '#3794ff', remote: '#b180d7' };
+const COLORS = { specialNames: ['main'], special: '#b180d7', other: '#e535ab', local: '#b180d7', remote: '#3794ff' };
 const { layoutGraph } = out('git/graph.js');
 const { compareRepos, attentionOf, needsAttention } = out('model/types.js');
 const { compileQuery } = out('model/query.js');

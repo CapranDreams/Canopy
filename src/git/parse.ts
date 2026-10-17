@@ -223,3 +223,23 @@ export function parseRemotes(out: string): Map<string, string> {
   }
   return map;
 }
+
+/** Parses `git diff-tree -r -z --name-status` (renames and copies carry the old path first). */
+export function parseNameStatusZ(out: string): FileEntry[] {
+  const parts = out.split('\0');
+  const files: FileEntry[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    const st = parts[i];
+    if (!st) continue;
+    const letter = st[0];
+    if (letter === 'R' || letter === 'C') {
+      const origPath = parts[++i];
+      const path = parts[++i];
+      if (path !== undefined) files.push({ status: letter === 'C' ? 'A' : 'R', path, origPath });
+    } else {
+      const path = parts[++i];
+      if (path !== undefined) files.push({ status: letter, path });
+    }
+  }
+  return files;
+}

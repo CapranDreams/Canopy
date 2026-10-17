@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { changedPathCount, parseBranches, parseDecorations, parseLog, parseRemotes, parseStashes, parseStatusV2, parseWorktrees } from '../src/git/parse';
+import { changedPathCount, parseBranches, parseDecorations, parseLog, parseNameStatusZ, parseRemotes, parseStashes, parseStatusV2, parseWorktrees } from '../src/git/parse';
 
 test('parseStatusV2: branch header, ahead/behind, all entry kinds', () => {
   const out = [
@@ -74,4 +74,16 @@ test('parseBranches, parseStashes, parseWorktrees, parseRemotes', () => {
   const r = parseRemotes('origin\tgit@github.com:o/r.git (fetch)\norigin\tgit@github.com:o/r.git (push)\nfork\thttps://x/y (fetch)\n');
   assert.equal(r.get('origin'), 'git@github.com:o/r.git');
   assert.equal(r.get('fork'), 'https://x/y');
+});
+
+test('parseNameStatusZ: plain, renamed and copied entries', () => {
+  const out = ['M', 'src/a b.ts', 'R087', 'old.ts', 'new.ts', 'D', 'gone.md', 'C100', 'src.ts', 'copy.ts', 'A', 'added.txt', ''].join('\0');
+  assert.deepEqual(parseNameStatusZ(out), [
+    { status: 'M', path: 'src/a b.ts' },
+    { status: 'R', path: 'new.ts', origPath: 'old.ts' },
+    { status: 'D', path: 'gone.md' },
+    { status: 'A', path: 'copy.ts', origPath: 'src.ts' },
+    { status: 'A', path: 'added.txt' }
+  ]);
+  assert.deepEqual(parseNameStatusZ(''), []);
 });

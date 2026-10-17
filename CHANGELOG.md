@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.2
+- Branch menu colors now match the graph: local branches purple, remote branches blue (canopy.branchColors.local / .remote defaults swapped).
+- Commit graph: click any commit, or the uncommitted changes row, to list its changed files inline beneath it; click a file to open its diff (merges diff against their first parent, renames diff against the old path). Commit actions moved to right-click.
+
 ## 0.3.1
 - Branch menu in the repository details lists every local branch (blue) and remote branch (purple), newest first; click one to check it out.
 - Profiles page colors branch names: special names such as main in purple, others in fuchsia.

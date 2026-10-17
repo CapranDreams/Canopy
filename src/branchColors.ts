@@ -9,7 +9,7 @@ export interface BranchColors {
   remote: string;
 }
 
-const DEFAULTS: BranchColors = { specialNames: ['main'], special: '#b180d7', other: '#e535ab', local: '#3794ff', remote: '#b180d7' };
+const DEFAULTS: BranchColors = { specialNames: ['main'], special: '#b180d7', other: '#e535ab', local: '#b180d7', remote: '#3794ff' };
 
 /** Accepts CSS colors such as #rgb, #rrggbb(aa), rgb()/hsl() and named colors; anything else falls back. */
 function color(value: unknown, fallback: string): string {

@@ -1,8 +1,8 @@
 import * as vscode from 'vscode';
 import { GitOps } from '../commands/gitOps';
-import { Commit, LOG_FORMAT, parseLog } from '../git/parse';
+import { Commit, FileEntry, LOG_FORMAT, parseLog, parseNameStatusZ } from '../git/parse';
 import { layoutGraph } from '../git/graph';
-import { openChange, openCommitFileDiff, openFile, openMergeEditor, openRefDiff } from '../gitContent';
+import { openChange, openCommitFileDiff, openFile, openHeadDiff, openMergeEditor, openRefDiff } from '../gitContent';
 import { Log } from '../log';
 import { RepoManager } from '../manager';
 import { Repo } from '../repo';
@@ -13,6 +13,8 @@ import { webviewHtml } from './webviewUtil';
 import type { ForgeHub } from '../forge/hub';
 
 type Scope = 'all' | 'local' | 'current';
+
+const SHA = /^[0-9a-f]{4,64}$/i;
 
 /** The per-repo details editor: toolbar, changes and commit graph. One panel, retargeted on selection. */
 export class DetailPanel implements vscode.Disposable {
@@ -26,6 +28,8 @@ export class DetailPanel implements vscode.Disposable {
   /** Last render reported by the webview (used by tests and to surface script errors). */
   lastRender: { rows: number; files: number } | undefined;
   private forgeService: ForgeHub | undefined;
+  /** CANOPY version shown in the panel's top-right corner. */
+  version = '';
 
   set forge(service: ForgeHub) {
     this.forgeService = service;
@@ -116,6 +120,7 @@ export class DetailPanel implements vscode.Disposable {
     await this.panel.webview.postMessage({
       type: 'state',
       scope: this.scope,
+      version: this.version,
       safetyStash: vscode.workspace.getConfiguration('canopy').get<boolean>('discard.safetyStash', true),
       colors: branchColors(),
       branches,
@@ -236,6 +241,26 @@ export class DetailPanel implements vscode.Disposable {
         this.graphKey = '';
         this.schedulePost(0);
         break;
+      case 'commitFiles': {
+        const sha = String(m.sha ?? '');
+        if (!SHA.test(sha)) return;
+        let files: FileEntry[] = [];
+        let error: string | undefined;
+        try {
+          files = await this.commitFiles(r, sha);
+        } catch (e) {
+          error = e instanceof Error ? e.message : String(e);
+        }
+        void this.panel?.webview.postMessage({ type: 'commitFiles', root: r.root, sha, files, error });
+        break;
+      }
+      case 'openCommitFile': {
+        const sha = String(m.sha ?? '');
+        const file: FileEntry = { path: String(m.path), status: String(m.status ?? 'M'), origPath: typeof m.origPath === 'string' && m.origPath ? m.origPath : undefined };
+        if (sha === '*') await openHeadDiff(r, file);
+        else if (SHA.test(sha)) await openCommitFileDiff(r, file.path, sha, file.status, file.origPath);
+        break;
+      }
       case 'commitAction':
         await this.commitAction(r, String(m.action), String(m.sha), typeof m.ref === 'string' ? m.ref : undefined);
         break;
@@ -247,8 +272,14 @@ export class DetailPanel implements vscode.Disposable {
     }
   }
 
+  /** Files a commit changed, against its first parent (so merges list what they brought in). */
+  private async commitFiles(r: Repo, sha: string): Promise<FileEntry[]> {
+    const out = await r.git(['diff-tree', '-r', '-z', '--name-status', '-M', '--root', '--no-commit-id', '--diff-merges=first-parent', sha, '--'], { readOnly: true });
+    return parseNameStatusZ(out);
+  }
+
   private async commitAction(r: Repo, action: string, sha: string, ref?: string): Promise<void> {
-    if (!/^[0-9a-f]{4,64}$/i.test(sha)) return;
+    if (!SHA.test(sha)) return;
     const target = ref ?? sha;
     switch (action) {
       case 'checkout':
@@ -280,23 +311,14 @@ export class DetailPanel implements vscode.Disposable {
         await vscode.env.clipboard.writeText(sha);
         void vscode.window.setStatusBarMessage(`Copied ${sha.slice(0, 8)}`, 2500);
         return;
-      case 'files':
       case 'compare': {
-        const compare = action === 'compare';
-        const out = await r.git(compare ? ['diff', '--name-status', sha] : ['show', '--name-status', '--format=', sha], { readOnly: true });
-        const files = out
-          .split('\n')
-          .map((l) => l.split('\t'))
-          .filter((p) => p.length >= 2)
-          .map(([st, a, b]) => ({ status: st[0], path: b ?? a }));
-        if (!files.length) return void vscode.window.showInformationMessage(compare ? 'No differences from the working tree.' : 'This commit changes no files.');
+        const files = parseNameStatusZ(await r.git(['diff', '-z', '--name-status', '-M', sha, '--'], { readOnly: true }));
+        if (!files.length) return void vscode.window.showInformationMessage('No differences from the working tree.');
         const pick = await vscode.window.showQuickPick(
           files.map((f) => ({ label: f.path, description: f.status, f })),
-          { placeHolder: compare ? `Files that differ between ${sha.slice(0, 8)} and the working tree` : `Files changed in ${sha.slice(0, 8)}`, matchOnDescription: true }
+          { placeHolder: `Files that differ between ${sha.slice(0, 8)} and the working tree`, matchOnDescription: true }
         );
-        if (!pick) return;
-        if (compare) await openRefDiff(r, pick.f.path, sha, sha.slice(0, 8));
-        else await openCommitFileDiff(r, pick.f.path, sha, pick.f.status);
+        if (pick) await openRefDiff(r, pick.f.path, sha, sha.slice(0, 8));
         return;
       }
     }

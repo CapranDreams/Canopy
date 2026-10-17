@@ -2,7 +2,7 @@
   "name": "canopy",
   "displayName": "CANOPY",
   "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
-  "version": "0.3.1",
+  "version": "0.3.2",
   "publisher": "MyriadArtificia",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -1623,13 +1623,13 @@
         "canopy.branchColors.local": {
           "type": "string",
           "format": "color-hex",
-          "default": "#3794ff",
+          "default": "#b180d7",
           "markdownDescription": "Color for local branches in the Branch menu of the repository details."
         },
         "canopy.branchColors.remote": {
           "type": "string",
           "format": "color-hex",
-          "default": "#b180d7",
+          "default": "#3794ff",
           "markdownDescription": "Color for remote branches in the Branch menu of the repository details."
         }
       }

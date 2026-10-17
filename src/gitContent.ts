@@ -78,12 +78,24 @@ export async function openRefDiff(repo: Repo, relPath: string, ref: string, labe
   await vscode.commands.executeCommand('vscode.diff', gitUri(repo, relPath, ref), vscode.Uri.file(path.join(repo.root, relPath)), `${name} (${label} ↔ Working Tree)`, beside());
 }
 
-/** Diffs a file between a commit and its first parent. */
-export async function openCommitFileDiff(repo: Repo, relPath: string, sha: string, status: string): Promise<void> {
+/** Diffs a file between a commit and its first parent. `origPath` is the parent-side path of a rename. */
+export async function openCommitFileDiff(repo: Repo, relPath: string, sha: string, status: string, origPath?: string): Promise<void> {
   const name = path.basename(relPath);
-  const left = status === 'A' ? gitUri(repo, relPath, '~empty') : gitUri(repo, relPath, `${sha}^`);
+  const left = status === 'A' ? gitUri(repo, relPath, '~empty') : gitUri(repo, origPath ?? relPath, `${sha}^`);
   const right = status === 'D' ? gitUri(repo, relPath, '~empty') : gitUri(repo, relPath, sha);
   await vscode.commands.executeCommand('vscode.diff', left, right, `${name} (${sha.slice(0, 8)})`, beside());
+}
+
+/** Diffs an uncommitted file (staged and unstaged together) between HEAD and the working tree. */
+export async function openHeadDiff(repo: Repo, file: FileEntry): Promise<void> {
+  const name = path.basename(file.path);
+  const workUri = vscode.Uri.file(path.join(repo.root, file.path));
+  if (file.status === 'C') return openMergeEditor(repo, file.path);
+  if (file.status === 'U') return void vscode.commands.executeCommand('vscode.open', workUri, beside());
+  if (file.status === 'A') return void vscode.commands.executeCommand('vscode.diff', gitUri(repo, file.path, '~empty'), workUri, `${name} (Added)`, beside());
+  if (file.status === 'D') return void vscode.commands.executeCommand('vscode.diff', gitUri(repo, file.path, 'HEAD'), gitUri(repo, file.path, '~empty'), `${name} (Deleted)`, beside());
+  const left = gitUri(repo, file.origPath ?? file.path, 'HEAD');
+  return void vscode.commands.executeCommand('vscode.diff', left, workUri, `${name} (HEAD ↔ Working Tree)`, beside());
 }
 
 export function registerGitContent(manager: RepoManager): vscode.Disposable {

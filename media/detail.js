@@ -12,7 +12,12 @@
   let openMenu = null;
   /** @type {{sha:string, refs:any[], x:number, y:number}|null} */
   let ctx = null;
+  /** Row whose changed files are listed beneath it ('*' for uncommitted changes). */
   let selectedSha = null;
+  /** Changed files per commit: an array once loaded, 'loading', or {error}. */
+  /** @type {Record<string, any>} */
+  let commitFiles = {};
+  let revealFiles = false;
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const post = (m) => vscode.postMessage(m);
@@ -128,7 +133,7 @@
     const scroll = /** @type {HTMLElement|null} */ (app.querySelector('.rows'))?.scrollTop ?? 0;
     app.className = '';
     app.innerHTML = `<div class="page">
-      <div class="crumb">${esc(r.crumb)}</div>
+      <div class="crumb"><span>${esc(r.crumb)}</span><span class="version" title="CANOPY version">CANOPY ${esc(state.version || '')}</span></div>
       <div class="title">
         <h1>${esc(r.name)}</h1>
         <span class="branch">${icon('branch')}${esc(r.branchLabel)}</span>
@@ -146,6 +151,10 @@
     ${ctx ? contextMenu() : ''}`;
     const rows = /** @type {HTMLElement|null} */ (app.querySelector('.rows'));
     if (rows) rows.scrollTop = scroll;
+    if (revealFiles) {
+      revealFiles = false;
+      /** @type {HTMLElement|null} */ (app.querySelector('.cfiles'))?.scrollIntoView({ block: 'nearest' });
+    }
     positionContextMenu();
     restoreFocus(focus);
     post({ type: 'rendered', rows: state.graph.rows.length, files: r.staged.length + r.unstaged.length + r.conflicts.length });
@@ -309,16 +318,57 @@
         return `<div class="row${row.wip ? ' wip' : ''}${row.head ? ' head' : ''}${selectedSha === row.hash ? ' sel' : ''}" data-sha="${esc(row.hash)}" role="listitem" tabindex="-1">
           ${laneSvg(row, g.width)}
           <span class="subj">${refs}<span class="txt">${subj}</span></span>
-          <span class="who">${esc(row.author)}</span><span class="when">${row.time ? ago(row.time * 1000) : ''}</span><span class="sha">${esc(row.short)}</span></div>`;
+          <span class="who">${esc(row.author)}</span><span class="when">${row.time ? ago(row.time * 1000) : ''}</span><span class="sha">${esc(row.short)}</span></div>${selectedSha === row.hash ? filesBlock(row, g.width) : ''}`;
       })
       .join('');
     return `<section class="card graph" aria-label="Commit graph">
       <div class="graph-h"><div class="card-h"><h2>Graph</h2></div>
         <div class="seg" role="group" aria-label="Branches shown">${scopes.map(([v, l]) => `<button class="${state.scope === v ? 'on' : ''}" data-scope="${v}" aria-pressed="${state.scope === v}">${l}</button>`).join('')}</div>
-        <span class="spacer"></span><span class="muted">Click a commit for actions · double-click for its files</span></div>
+        <span class="spacer"></span><span class="muted">Click a commit for its files · right-click for actions</span></div>
       <div class="rows" role="list">${rows || '<div class="more-note">No commits yet.</div>'}</div>
       ${g.truncated ? `<div class="more-note">Showing the latest ${g.rows.length} commits (setting: canopy.graph.maxCommits).</div>` : ''}
     </section>`;
+  }
+
+  /** Uncommitted files (conflicts, staged, unstaged) as one list, one entry per path. */
+  function wipFiles() {
+    const r = state.repo;
+    const seen = new Map();
+    for (const f of r.conflicts) seen.set(f.path, f);
+    for (const f of [...r.staged, ...r.unstaged]) if (!seen.has(f.path)) seen.set(f.path, f);
+    return [...seen.values()];
+  }
+
+  /** The changed-file list shown under the selected graph row, with the lanes carried through it. */
+  function filesBlock(row, width) {
+    const w = Math.max(1, width) * LANE_W + 6;
+    const lanes = row.lines
+      .filter((l) => l.y2 === 2)
+      .map((l) => `<path class="lane s${l.color % 8}" d="M${lx(l.x2)} 0V1" vector-effect="non-scaling-stroke"/>`)
+      .join('');
+    const files = row.wip ? wipFiles() : commitFiles[row.hash];
+    let body;
+    if (!files || files === 'loading') body = '<div class="cf-note">Loading files…</div>';
+    else if (!Array.isArray(files)) body = `<div class="cf-note error">${esc(files.error)}</div>`;
+    else if (!files.length) body = `<div class="cf-note">${row.wip ? 'No uncommitted changes.' : 'No file changes in this commit.'}</div>`;
+    else
+      body =
+        `<div class="cf-note">${files.length} file${files.length === 1 ? '' : 's'} ${row.wip ? 'changed since HEAD' : 'changed'}</div>` +
+        files.map((f) => commitFileRow(f, row.hash)).join('');
+    return `<div class="cfiles" role="listitem" aria-label="Files changed in ${row.wip ? 'uncommitted changes' : esc(row.short)}">
+      <svg class="cf-lanes" width="${w}" viewBox="0 0 ${w} 1" preserveAspectRatio="none" aria-hidden="true">${lanes}</svg>
+      <div class="cf-list">${body}</div></div>`;
+  }
+
+  function commitFileRow(f, sha) {
+    const slash = f.path.lastIndexOf('/');
+    const name = slash >= 0 ? f.path.slice(slash + 1) : f.path;
+    const dir = slash >= 0 ? f.path.slice(0, slash) : '';
+    const p = esc(f.path);
+    const title = `${p}${f.origPath ? ' (from ' + esc(f.origPath) + ')' : ''}`;
+    const openFile = f.status === 'D' ? '' : `<span class="acts"><button class="icon-btn" data-act="open-file" data-path="${p}" title="Open file" aria-label="Open ${p}">${icon('file')}</button></span>`;
+    return `<div class="file"><button class="open" data-act="commit-file" data-sha="${esc(sha)}" data-path="${p}" data-orig="${esc(f.origPath || '')}" data-status="${esc(f.status)}" title="${title}">
+        <span class="st st-${esc(f.status)}">${esc(f.status)}</span><span class="name">${esc(name)}</span><span class="dir">${esc(dir)}</span></button>${openFile}</div>`;
   }
 
   function contextMenu() {
@@ -345,7 +395,6 @@
       ${item(`Reset ${current} Here (Mixed)`, 'resetMixed')}
       ${item(`Reset ${current} Here (Hard)…`, 'resetHard', '', true)}
       <div class="sep"></div>
-      ${item('Show Changed Files…', 'files')}
       ${item('Compare with Working Tree…', 'compare')}
       ${item('Copy SHA', 'copy')}
     </div>`;
@@ -429,15 +478,13 @@
     if (el.classList.contains('row')) {
       const sha = el.dataset.sha || '';
       openMenu = null;
-      selectedSha = sha;
-      if (sha === '*') {
-        ctx = null;
-        render();
-        /** @type {HTMLElement|null} */ (document.getElementById('msg'))?.focus();
-        return;
+      ctx = null;
+      selectedSha = selectedSha === sha ? null : sha;
+      if (selectedSha && sha !== '*' && !Array.isArray(commitFiles[sha])) {
+        commitFiles[sha] = 'loading';
+        post({ type: 'commitFiles', sha });
       }
-      const row = state.graph.rows.find((x) => x.hash === sha);
-      ctx = ctx && ctx.sha === sha ? null : { sha, refs: row ? row.refs : [], x: /** @type {MouseEvent} */ (e).clientX, y: /** @type {MouseEvent} */ (e).clientY };
+      revealFiles = !!selectedSha;
       render();
       return;
     }
@@ -448,6 +495,7 @@
       case 'refresh': return post({ type: 'refresh' });
       case 'open': return post({ type: 'open', path, staged: el.dataset.staged === 'true', mode: 'diff' });
       case 'open-file': return post({ type: 'open', path, mode: 'file' });
+      case 'commit-file': return post({ type: 'openCommitFile', sha: el.dataset.sha, path, origPath: el.dataset.orig, status: el.dataset.status });
       case 'mergeEditor': return post({ type: 'mergeEditor', path });
       case 'stage': return post({ type: 'stage', paths: [path] });
       case 'unstage': return post({ type: 'unstage', paths: [path] });
@@ -459,13 +507,15 @@
     }
   });
 
-  app.addEventListener('dblclick', (e) => {
+  app.addEventListener('contextmenu', (e) => {
     const row = /** @type {HTMLElement|null} */ (/** @type {HTMLElement} */ (e.target).closest('.row'));
-    if (row && row.dataset.sha && row.dataset.sha !== '*') {
-      ctx = null;
-      render();
-      post({ type: 'commitAction', action: 'files', sha: row.dataset.sha });
-    }
+    if (!row || !row.dataset.sha || row.dataset.sha === '*') return;
+    e.preventDefault();
+    const sha = row.dataset.sha;
+    const r = state.graph.rows.find((x) => x.hash === sha);
+    openMenu = null;
+    ctx = { sha, refs: r ? r.refs : [], x: e.clientX, y: e.clientY };
+    render();
   });
 
   app.addEventListener('input', (e) => {
@@ -512,9 +562,16 @@
         openMenu = null;
         ctx = null;
         selectedSha = null;
+        commitFiles = {};
       }
       state = m;
       render();
+    } else if (m.type === 'commitFiles' && state && m.root === state.repo.root) {
+      commitFiles[m.sha] = m.error ? { error: m.error } : m.files;
+      if (selectedSha === m.sha) {
+        revealFiles = true;
+        render();
+      }
     } else if (m.type === 'committed' && state) {
       drafts[state.repo.root] = '';
       persist();

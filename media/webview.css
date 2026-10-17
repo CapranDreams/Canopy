@@ -37,7 +37,8 @@ button { font: inherit; color: inherit; }
 svg.i { width: 14px; height: 14px; flex: 0 0 auto; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
 
 .page { padding: 16px 20px 24px; display: flex; flex-direction: column; gap: var(--gap); min-width: 0; }
-.crumb { font-size: 11px; color: var(--muted); letter-spacing: 0.02em; }
+.crumb { font-size: 11px; color: var(--muted); letter-spacing: 0.02em; display: flex; gap: 12px; }
+.crumb .version { margin-left: auto; font-family: var(--vscode-editor-font-family); white-space: nowrap; }
 .title { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 12px; }
 .title h1 { margin: 0; font-size: 20px; font-weight: 600; }
 .title .branch { font-size: 14px; display: inline-flex; align-items: center; gap: 4px; }
@@ -141,6 +142,12 @@ textarea.msg:focus { outline: 1px solid var(--vscode-focusBorder); border-color:
 .row .who { flex: 0 0 90px; color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; }
 .row .when { flex: 0 0 64px; color: var(--muted); font-size: 12px; text-align: right; }
 .row .sha { flex: 0 0 64px; color: var(--muted); font-family: var(--vscode-editor-font-family); font-size: 11.5px; text-align: right; }
+/* changed files listed under the selected graph row */
+.cfiles { display: flex; gap: 8px; padding: 0 12px 2px 4px; background: color-mix(in srgb, var(--vscode-list-inactiveSelectionBackground) 45%, transparent); }
+.cf-lanes { flex: 0 0 auto; align-self: stretch; height: auto; display: block; overflow: visible; }
+.cf-list { flex: 1; min-width: 0; padding: 2px 0 4px; }
+.cf-note { padding: 2px 4px; font-size: 12px; color: var(--muted); }
+.cf-note.error { color: var(--danger); white-space: pre-wrap; }
 .ref { flex: 0 0 auto; padding: 0 5px; border-radius: 3px; font-size: 11px; line-height: 16px; font-family: var(--vscode-editor-font-family); border: 1px solid transparent; }
 .ref.head, .ref.local { color: var(--branch); border-color: color-mix(in srgb, var(--branch) 50%, transparent); }
 .ref.head { font-weight: 600; background: color-mix(in srgb, var(--branch) 15%, transparent); }
@@ -230,7 +237,7 @@ button.chip:hover { background: var(--hover); }
 .banner.info { background: var(--vscode-inputValidation-infoBackground, rgba(0, 120, 212, 0.1)); border-color: var(--vscode-inputValidation-infoBorder, rgba(0, 120, 212, 0.5)); }
 
 /* Branch menu in the details view: local and remote branches, colors from canopy.branchColors.* */
-:root { --branch-local: #3794ff; --branch-remote: #b180d7; --branch-special: #b180d7; --branch-other-color: #e535ab; }
+:root { --branch-local: #b180d7; --branch-remote: #3794ff; --branch-special: #b180d7; --branch-other-color: #e535ab; }
 .menu.scroll { max-height: 70vh; overflow-y: auto; min-width: 320px; }
 .menu .mi .bname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--vscode-editor-font-family); }
 .menu .mi.b-local .bname { color: var(--branch-local); }

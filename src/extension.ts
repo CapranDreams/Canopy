@@ -49,6 +49,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<CanopyApi>
   manager.visibleForAutoFetch = () => tree.visibleRepos();
   const ops = new GitOps(manager, log);
   const detail = new DetailPanel(ctx.extensionUri, manager, ops, tree, log);
+  detail.version = `v${String(ctx.extension.packageJSON.version)}${ctx.extensionMode === vscode.ExtensionMode.Development ? ' (dev)' : ''}`;
   const profiles = new Profiles(ctx, store, manager, tree, log);
   const profilesPanel = new ProfilesPanel(ctx.extensionUri, profiles, store, log);
   const statusBar = new StatusBar(manager, tree, store);
