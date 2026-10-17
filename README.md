@@ -59,6 +59,8 @@ Click a repository to open its details:
 - **Toolbar:** Sync, then Pull, Push, Fetch, Branch, Merge, Rebase, Stash and Prune menus, plus More for commit, cherry-pick, revert, reset, tags, remotes, worktrees and submodules.
 - **Changes:** write a commit message (Commit, Commit & Push, Commit & Sync, Amend). Stage, unstage or discard each file, or use **Stage all** and **Discard all**. Clicking a file opens its diff **in the editor beside**. Discards are saved to a safety stash first, so they can be undone.
 - **Commit graph:** branches, merges and tags drawn as lanes. Click a commit (or the uncommitted changes row) to list its changed files beneath it; click a file to open its diff. Right-click a commit to check it out, branch or tag from it, cherry-pick, revert, merge, rebase onto it or reset to it.
+- **Stats:** switch the graph card to **Stats** for lines of code, commits per week, lines of code over time, authors (commits, lines added and deleted, and lines each author owns today via git blame), languages, an activity heatmap and the most changed files, over 3 months, 1 year or all time. When the repository sits in a CANOPY folder with others, see totals for the whole folder.
+- **Profiles:** the third tab shows the clone & switch profile editor (see below) without leaving the details panel.
 - **Conflicts:** when a merge or rebase stops, a banner offers the 3-way merge editor, your external merge tool, Continue, Skip and Abort.
 
 Select several repositories in the sidebar to fetch, pull, push, sync or stash them all at once.
