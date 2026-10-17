@@ -44,6 +44,8 @@ Each row shows the repository, its branch, and badges:
 | `✓ ✗ ◷` | pipeline or checks passed, failed or running |
 | `!42` / `#42` | open GitLab merge request / GitHub pull request |
 
+The most urgent state also shows as a colored badge at the right edge, and the repository name takes its color: failed pipeline (red `✕`), commits to push (blue `↑`), commits to pull (green `↓`), then uncommitted changes (yellow `●`). Change these colors in `workbench.colorCustomizations` with `canopy.pipelineFailedForeground`, `canopy.aheadForeground`, `canopy.behindForeground` and `canopy.changesForeground`.
+
 - **Sort** by attention, name, recent activity or your own order. **Group by status** to see Conflicts, Incoming, Local changes and Unpushed at a glance.
 - **Filter** by status, or with a query such as `is:dirty age<7d`.
 - **Fetch All** (and automatic fetching every few minutes) keeps the counts current. The activity bar badge and status bar show totals.
