@@ -329,3 +329,9 @@ th.num .sort { width: 100%; text-align: right; }
 .page.shell .graph-h { padding: 0; }
 #profiles-root .page { padding-top: 6px; }
 #profiles-root .crumb { display: none; }
+
+/* In-progress button (Sync / Publish): the icon spins until the command finishes */
+.i.spin { animation: canopy-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+.btn.busy { cursor: progress; opacity: 0.85; }
+@keyframes canopy-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .i.spin { animation-duration: 2.4s; } }

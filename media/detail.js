@@ -18,6 +18,8 @@
   /** @type {Record<string, any>} */
   let commitFiles = {};
   let revealFiles = false;
+  /** Toolbar commands still running (their buttons animate until the host reports them done). */
+  const running = new Set();
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
   const post = (m) => vscode.postMessage(m);
@@ -208,6 +210,8 @@
     }
     positionContextMenu();
     restoreFocus(focus);
+    // Re-rendering replaces the spinning icon; phase it to the clock so the rotation never visibly restarts.
+    for (const el of /** @type {SVGElement[]} */ ([...app.querySelectorAll('.i.spin')])) el.style.animationDelay = `-${Date.now() % 900}ms`;
     if (view === 'stats' && stats.data && !measuring && measureCharts()) {
       measuring = true;
       render();
@@ -221,9 +225,13 @@
     const tb = (name, label, ic, extra = '') =>
       `<div class="tb"><button class="btn ${extra}" data-menu="${name}" aria-haspopup="menu" aria-expanded="${openMenu === name}">${icon(ic)}<span>${esc(label)}</span>${icon('chev', 'chev')}</button>${openMenu === name ? menuHtml(name) : ''}</div>`;
     const sync = r.upstream
-      ? `<button class="btn primary" data-run="sync" title="Pull then push">${icon('sync')}Sync ↓${r.behind} ↑${r.ahead}</button>`
+      ? running.has('sync')
+        ? `<button class="btn primary busy" data-run="sync" aria-busy="true" disabled title="Syncing: pull, then push">${icon('sync', 'spin')}Syncing…</button>`
+        : `<button class="btn primary" data-run="sync" title="Pull then push">${icon('sync')}Sync ↓${r.behind} ↑${r.ahead}</button>`
       : r.branch && r.remotes.length
-        ? `<button class="btn primary" data-run="publishBranch">${icon('push')}Publish Branch</button>`
+        ? running.has('publishBranch')
+          ? `<button class="btn primary busy" data-run="publishBranch" aria-busy="true" disabled>${icon('sync', 'spin')}Publishing…</button>`
+          : `<button class="btn primary" data-run="publishBranch">${icon('push')}Publish Branch</button>`
         : '';
     return `<div class="toolbar" role="toolbar" aria-label="Git actions">
       ${sync}
@@ -766,7 +774,11 @@
       openMenu = null;
       render();
       if (id.startsWith('c:')) commit(id.slice(2));
-      else post({ type: 'cmd', id });
+      else {
+        running.add(id);
+        render();
+        post({ type: 'cmd', id });
+      }
       return;
     }
     if (el.dataset.commit && ctx) {
@@ -931,6 +943,7 @@
         ctx = null;
         selectedSha = null;
         commitFiles = {};
+        running.clear();
         stats.data = null;
         stats.owners = null;
         stats.folder = null;
@@ -953,6 +966,9 @@
       if (m.data) stats.data = m.data;
       stats.owners = m.ownership || (m.scope === 'repo' ? stats.owners : null);
       if (view === 'stats') render();
+    } else if (m.type === 'cmdDone') {
+      running.delete(m.id);
+      if (state && m.root === state.repo.root) render();
     } else if (m.type === 'profiles') {
       profilesView?.onMessage(m.msg);
     } else if (m.type === 'statsOwners' && state && m.root === state.repo.root) {

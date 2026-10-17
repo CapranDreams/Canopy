@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.10
+- The Sync and Publish Branch buttons in the details toolbar now spin, read "Syncing…" / "Publishing…" and stay disabled until the command finishes, so you can see it is working (and can't start it twice).
+
 ## 0.3.9
 - Fixed Discard on an untracked file reporting "pathspec ... did not match any file(s) known to git" even though the file was stashed and removed. Git exits with an error after a successful safety stash in that case; CANOPY now checks that the stash was created and treats the discard as done.
 
