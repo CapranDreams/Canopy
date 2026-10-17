@@ -44,7 +44,7 @@ async function step(name: string, fn: () => Promise<void>): Promise<void> {
 
 export async function run(): Promise<void> {
   const root = process.env.CANOPY_E2E_ROOT!;
-  const ext = vscode.extensions.getExtension<CanopyApi>('MyriadArtificia.canopy');
+  const ext = vscode.extensions.getExtension<CanopyApi>('MyriadArtificia.canopy-git');
   assert.ok(ext, 'extension is installed');
   const api = await ext.activate();
   const { manager, tree, store, ops, profiles, detail, profilesPanel, gitlab, github, forge } = api;

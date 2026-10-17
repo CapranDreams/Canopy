@@ -1,5 +1,5 @@
 {
-  "name": "canopy",
+  "name": "canopy-git",
   "displayName": "CANOPY",
   "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
   "version": "1.0.0",
