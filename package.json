@@ -2,7 +2,7 @@
   "name": "canopy",
   "displayName": "CANOPY",
   "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
-  "version": "0.3.10",
+  "version": "0.3.11",
   "publisher": "MyriadArtificia",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -921,23 +921,33 @@
       ],
       "view/item/context": [
         {
-          "command": "canopy.pull",
+          "command": "canopy.fetch",
           "group": "inline@1",
-          "when": "view == canopy.repos && viewItem =~ /^repo.*:behind/"
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:remote/"
+        },
+        {
+          "command": "canopy.pull",
+          "group": "inline@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo(?!.*:unpublished).*:remote/"
         },
         {
           "command": "canopy.push",
-          "group": "inline@2",
-          "when": "view == canopy.repos && viewItem =~ /^repo.*:ahead/"
+          "group": "inline@3",
+          "when": "view == canopy.repos && viewItem =~ /^repo(?!.*:unpublished).*:remote/"
+        },
+        {
+          "command": "canopy.sync",
+          "group": "inline@4",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:remote/"
         },
         {
           "command": "canopy.publishBranch",
-          "group": "inline@2",
+          "group": "inline@3",
           "when": "view == canopy.repos && viewItem =~ /^repo.*:unpublished/"
         },
         {
           "command": "canopy.openDetails",
-          "group": "inline@3",
+          "group": "inline@5",
           "when": "view == canopy.repos && viewItem =~ /^repo/"
         },
         {
@@ -1107,7 +1117,7 @@
         },
         {
           "command": "canopy.forge.openRequest",
-          "group": "inline@4",
+          "group": "inline@6",
           "when": "view == canopy.repos && viewItem =~ /^repo.*:mr/"
         },
         {

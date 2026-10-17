@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.11
+- Repository rows in the sidebar get inline Fetch, Pull, Push and Sync icon buttons (shown on hover, before Open Details) for every repository that has a remote. Pull and Push are hidden while a branch is unpublished; use Sync or Publish Branch there.
+
 ## 0.3.10
 - The Sync and Publish Branch buttons in the details toolbar now spin, read "Syncing…" / "Publishing…" and stay disabled until the command finishes, so you can see it is working (and can't start it twice).
 

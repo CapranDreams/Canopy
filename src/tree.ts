@@ -358,6 +358,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
       item.iconPath = new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
     }
     const flags = ['repo'];
+    if (r.remotes.size) flags.push('remote');
     if (r.behind) flags.push('behind');
     if (r.ahead) flags.push('ahead');
     if (r.changed) flags.push('dirty');
