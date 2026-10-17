@@ -1,7 +1,5 @@
 # CANOPY
 
-**C**ross-repo **A**rrangement, **N**avigation & **O**rchestration of **P**rojects, **Y**our way.
-
 **Every branch, one view.** CANOPY is a sidebar for people who work across many Git repositories. File repos into your own folders, see at a glance which ones need pulling, pushing or fixing, run any Git operation in one click, follow GitLab and GitHub pipelines, merge requests and pull requests, and share profiles that set up a whole set of repos for a teammate.
 
 ![CANOPY sidebar and repository details](images/overview.png)
