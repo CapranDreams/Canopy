@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.0
+First stable release.
+- One busy indicator everywhere: while any git action runs on a repository (pull, push, sync, fetch, publish, commit, stash, branch switch, merge, rebase, cherry-pick, revert, reset, clean, tags, remotes, worktrees, submodule updates), its row in the sidebar and the Sync button in the details panel both spin and name what is happening ("Pulling…", "Stashing…"). They read the same state, so if one spins the other does, whichever way the action was started. Sync keeps a steady "Syncing…" through its pull and push. Instant staging commands do not flicker a spinner.
+- The Marketplace "Preview" badge is gone, and the package now links to its GitHub repository, issues and README.
+- Everything since 0.3.0: GitHub alongside GitLab, the Stats and Profiles tabs, file lists and line counts in the commit graph, the Prune menu, nested submodules with their own icon, one-click branch switching from the sidebar, priority badges and Fetch/Pull/Push/Sync buttons on repository rows.
+
 ## 0.4.1
 - Repository rows in the sidebar now show progress: while a pull, push, sync, fetch, publish or submodule update is running, the row's icon spins and its text starts with what it is doing ("Pulling…", "Pushing…", "Fetching…", "Updating submodules…"). This works whichever way the operation was started: the row buttons, the details panel, the command palette or a folder action.
 
