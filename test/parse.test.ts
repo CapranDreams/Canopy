@@ -30,6 +30,13 @@ test('parseStatusV2: branch header, ahead/behind, all entry kinds', () => {
   assert.equal(changedPathCount(s), 6);
 });
 
+test('parseStatusV2: submodule entries record whether the commit moved', () => {
+  const out = ['# branch.oid abc', '# branch.head main', '1 .M SC.. 160000 160000 160000 aaa bbb libs/moved', '1 .M S.M. 160000 160000 160000 aaa bbb libs/dirty', '1 .M N... 100644 100644 100644 aaa bbb file.txt', ''].join('\0');
+  const s = parseStatusV2(out);
+  assert.deepEqual(s.submodules, { 'libs/moved': { commit: true }, 'libs/dirty': { commit: false } });
+  assert.equal(s.unstaged.length, 3);
+});
+
 test('parseStatusV2: detached and initial', () => {
   const s = parseStatusV2(['# branch.oid (initial)', '# branch.head (detached)', ''].join('\0'));
   assert.equal(s.oid, null);

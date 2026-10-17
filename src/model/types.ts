@@ -26,6 +26,8 @@ export interface RepoFacts {
   /** Open merge request for the current branch, when connected. */
   mr: 'open' | 'draft' | null;
   mrConflicts: boolean;
+  /** Submodule checked out at a different commit than its parent repository records. */
+  submoduleMoved?: boolean;
 }
 
 export type Attention = 'conflict' | 'error' | 'diverged' | 'behind' | 'changes' | 'ahead' | 'unpublished' | 'clean';

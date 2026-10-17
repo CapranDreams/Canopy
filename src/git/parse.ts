@@ -20,11 +20,13 @@ export interface StatusInfo {
   staged: FileEntry[];
   unstaged: FileEntry[];
   conflicts: FileEntry[];
+  /** Submodules this repository reports as changed, by path; `commit` = checked out at a different commit than recorded. */
+  submodules: Record<string, { commit: boolean }>;
 }
 
 /** Parses `git status --porcelain=v2 --branch -z`. */
 export function parseStatusV2(out: string): StatusInfo {
-  const info: StatusInfo = { oid: null, branch: null, detached: false, upstream: null, ahead: 0, behind: 0, staged: [], unstaged: [], conflicts: [] };
+  const info: StatusInfo = { oid: null, branch: null, detached: false, upstream: null, ahead: 0, behind: 0, staged: [], unstaged: [], conflicts: [], submodules: {} };
   const records = out.split('\0');
   for (let i = 0; i < records.length; i++) {
     const rec = records[i];
@@ -51,6 +53,8 @@ export function parseStatusV2(out: string): StatusInfo {
       const path = fields[fields.length - 1];
       let origPath: string | undefined;
       if (type === '2') origPath = records[++i];
+      // Field 3 is "N..." for ordinary files and "S<c><m><u>" for submodules; c = 'C' when the commit differs.
+      if (fields[2]?.[0] === 'S') info.submodules[path] = { commit: fields[2][1] === 'C' };
       addXY(info, xy, path, origPath);
     } else if (type === 'u') {
       const fields = splitFields(rec, 10);

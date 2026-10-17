@@ -17,6 +17,8 @@ export class Repo {
   loaded = false;
   fetching = false;
   lastFetch = 0;
+  /** Working tree of the repository this one is a submodule of, if any. */
+  superRoot: string | undefined;
   private signature = '';
 
   constructor(
@@ -108,6 +110,9 @@ export class Repo {
         const [gitDir, common] = out.split(/\r?\n/);
         this.gitDir = gitDir.trim();
         this.commonDir = path.resolve(this.root, common.trim());
+        // Empty outside a submodule (worktrees and ordinary repositories print nothing).
+        const sup = (await this.git(['rev-parse', '--show-superproject-working-tree'], { readOnly: true }).catch(() => '')).trim();
+        this.superRoot = sup ? path.resolve(sup) : undefined;
       }
       const [statusOut, logOut, remoteOut] = await Promise.all([
         this.git(['status', '--porcelain=v2', '--branch', '-z'], { readOnly: true }),
@@ -124,7 +129,7 @@ export class Repo {
       this.error = e instanceof GitError ? e.message : String(e);
     }
     this.loaded = true;
-    const sig = JSON.stringify([this.status, this.operation, this.error, this.lastCommitTime, [...this.remotes], this.fetching]);
+    const sig = JSON.stringify([this.status, this.operation, this.error, this.lastCommitTime, [...this.remotes], this.fetching, this.superRoot]);
     const changed = sig !== this.signature;
     this.signature = sig;
     return changed;

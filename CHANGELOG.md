@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0
+- Submodules: a repository that is a Git submodule of another tracked repository now appears nested under its parent in the Repositories view instead of as a separate entry. Submodules have their own icon in a teal color (change it with workbench.colorCustomizations: canopy.submoduleForeground), keep their own branch, badge and buttons, and show a yellow ≠ badge when checked out at a different commit than the parent records. Grouping by status keeps the list flat (with the same icon). A parent stays visible under filters when one of its submodules matches, and the details panel's breadcrumb says which repository a submodule belongs to.
+- New Switch Branch button (branch icon) first among a repository's hover buttons: opens the branch picker for that repository or submodule. Also available as the CANOPY: Switch Branch… command.
+- Folder actions (such as Fetch) now include the submodules nested under the repositories in the folder.
+
 ## 0.3.11
 - Repository rows in the sidebar get inline Fetch, Pull, Push and Sync icon buttons (shown on hover, before Open Details) for every repository that has a remote. Pull and Push are hidden while a branch is unpublished; use Sync or Publish Branch there.
 

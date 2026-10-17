@@ -151,7 +151,7 @@ export class DetailPanel implements vscode.Disposable {
       repo: {
         name: r.name,
         root: r.root,
-        crumb: ['CANOPY', ...(folderNames.length ? folderNames : ['Unsorted'])].join('  /  '),
+        crumb: ['CANOPY', ...(folderNames.length ? folderNames : ['Unsorted']), ...(r.superRoot ? [`submodule of ${this.tree.parentOf(r)?.name ?? r.superRoot}`] : [])].join('  /  '),
         branch: r.branch,
         branchLabel: r.branchLabel,
         detached: r.detached,

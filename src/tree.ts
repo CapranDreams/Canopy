@@ -1,3 +1,4 @@
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { Layout, LayoutFolder, folderOfRepo, folderPath, moveFolder, moveRepos, setHidden, walkFolders } from './model/layout';
 import { compileQuery, Predicate } from './model/query';
@@ -53,6 +54,7 @@ export function priorityDecoration(r: RepoFacts): { badge: string; color: string
   if (r.ahead) return { badge: badgeCount('↑', r.ahead), color: 'canopy.aheadForeground', tooltip: `${r.ahead} to push` };
   if (r.behind) return { badge: badgeCount('↓', r.behind), color: 'canopy.behindForeground', tooltip: `${r.behind} to pull` };
   if (r.changed) return { badge: badgeCount('●', r.changed), color: 'canopy.changesForeground', tooltip: `${r.changed} changed` };
+  if (r.submoduleMoved) return { badge: '≠', color: 'canopy.changesForeground', tooltip: 'Checked out at a different commit than the parent repository records' };
   return undefined;
 }
 
@@ -73,6 +75,8 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   private filterPredicate: Predicate | undefined;
   private refreshTimer: NodeJS.Timeout | undefined;
   private forgeService: ForgeHub | undefined;
+  /** Submodules by parent repo key; rebuilt after every refresh. */
+  private childMap: Map<string, Repo[]> | undefined;
 
   constructor(
     private readonly manager: RepoManager,
@@ -146,6 +150,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     if (this.refreshTimer) return;
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = undefined;
+      this.childMap = undefined;
       this._onDidChangeTreeData.fire(undefined);
       this._onDidChangeFileDecorations.fire(undefined);
       this.updateChrome();
@@ -153,6 +158,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   }
 
   refresh(): void {
+    this.childMap = undefined;
     this._onDidChangeTreeData.fire(undefined);
     this._onDidChangeFileDecorations.fire(undefined);
     this.updateChrome();
@@ -167,6 +173,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
 
   factsOf(repo: Repo): RepoFacts {
     const f = repo.facts(this.folderNamesOf(repo));
+    if (repo.superRoot) f.submoduleMoved = this.isMoved(repo);
     const info = this.forgeService?.info(repo);
     if (info) {
       f.ci = info.pipeline?.status ?? null;
@@ -174,6 +181,60 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
       f.mrConflicts = !!info.mr?.hasConflicts;
     }
     return f;
+  }
+
+  // --- submodules ---------------------------------------------------------
+
+  /** The tracked repository this one is a submodule of. */
+  parentOf(repo: Repo): Repo | undefined {
+    return repo.superRoot ? this.manager.findByRoot(repo.superRoot) : undefined;
+  }
+
+  /** Submodules nest under their parent, except when the view is grouped by status (that list stays flat). */
+  private get nesting(): boolean {
+    return this.state.groupBy !== 'status' || this.state.editMode;
+  }
+
+  /** True when the repo is shown under its parent instead of in a folder. */
+  private isNested(repo: Repo): boolean {
+    return this.nesting && !!this.parentOf(repo);
+  }
+
+  private submodulesOf(repo: Repo): Repo[] {
+    if (!this.childMap) {
+      this.childMap = new Map();
+      for (const r of this.manager.all) {
+        const parent = this.parentOf(r);
+        if (parent) this.childMap.set(parent.key, [...(this.childMap.get(parent.key) ?? []), r]);
+      }
+    }
+    return this.childMap.get(repo.key) ?? [];
+  }
+
+  /** Submodules to show under a repo (filters apply), in view order. */
+  private visibleSubmodules(repo: Repo): Repo[] {
+    if (!this.nesting) return [];
+    return this.submodulesOf(repo).filter((r) => this.passesFilter(r)).sort(this.repoComparator());
+  }
+
+  /** `repos` plus every submodule below them, deduplicated. */
+  private withSubmodules(repos: Repo[]): Repo[] {
+    const out = new Map<string, Repo>();
+    const add = (r: Repo) => {
+      if (out.has(r.key)) return;
+      out.set(r.key, r);
+      this.submodulesOf(r).forEach(add);
+    };
+    repos.forEach(add);
+    return [...out.values()];
+  }
+
+  /** Is this submodule checked out at a different commit than its parent records? */
+  private isMoved(repo: Repo): boolean {
+    const parent = this.parentOf(repo);
+    if (!parent) return false;
+    const rel = path.relative(parent.root, repo.root).replace(/\\/g, '/');
+    return !!parent.status?.submodules[rel]?.commit;
   }
 
   isHidden(repo: Repo): boolean {
@@ -185,7 +246,14 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     return this.manager.all.filter((r) => !this.isHidden(r));
   }
 
+  /** Passes the filters itself, or (when submodules nest under it) because one of them does. */
   private passesFilter(repo: Repo): boolean {
+    if (this.state.editMode) return true;
+    if (this.isHidden(repo)) return false;
+    return this.passesOwnFilter(repo) || (this.nesting && this.submodulesOf(repo).some((s) => this.passesFilter(s)));
+  }
+
+  private passesOwnFilter(repo: Repo): boolean {
     if (this.state.editMode) return true;
     if (this.isHidden(repo)) return false;
     const f = this.factsOf(repo);
@@ -203,7 +271,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
 
   /** Repos shown in the view right now, in display order (used by Go to Repository). */
   shownRepos(): Repo[] {
-    return this.manager.all.filter((r) => this.passesFilter(r)).sort(this.repoComparator());
+    return this.manager.all.filter((r) => this.passesOwnFilter(r)).sort(this.repoComparator());
   }
 
   private repoComparator(manualOrder?: string[]): (a: Repo, b: Repo) => number {
@@ -214,7 +282,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   private smartMatches(folder: LayoutFolder): Repo[] {
     try {
       const pred = compileQuery(folder.query ?? '');
-      return this.manager.all.filter((r) => this.passesFilter(r) && pred(this.factsOf(r)));
+      return this.manager.all.filter((r) => this.passesOwnFilter(r) && pred(this.factsOf(r)));
     } catch {
       return [];
     }
@@ -224,20 +292,23 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     if (folder.query !== undefined) return this.smartMatches(folder).sort(this.repoComparator());
     return folder.repos
       .map((k) => this.manager.get(k))
-      .filter((r): r is Repo => !!r && this.passesFilter(r))
+      .filter((r): r is Repo => !!r && !this.isNested(r) && this.passesFilter(r))
       .sort(this.repoComparator(folder.repos));
   }
 
   private unsortedRepos(): Repo[] {
     const filed = new Set<string>();
     for (const { folder } of walkFolders(this.layout.folders)) if (!folder.query) folder.repos.forEach((k) => filed.add(k));
-    return this.manager.all.filter((r) => !filed.has(r.key) && this.passesFilter(r)).sort(this.repoComparator(this.layout.unsorted));
+    return this.manager.all.filter((r) => !filed.has(r.key) && !this.isNested(r) && this.passesFilter(r)).sort(this.repoComparator(this.layout.unsorted));
   }
 
   /** All repos under a node, recursively (deduplicated). */
   reposUnder(node: Node): Repo[] {
     if (node.kind === 'repo') return [node.repo];
-    if (node.kind === 'unsorted') return this.unsortedRepos();
+    if (node.kind === 'unsorted') {
+      const top = this.unsortedRepos();
+      return this.withSubmodules(top).filter((r) => top.includes(r) || this.passesOwnFilter(r));
+    }
     if (node.kind === 'group') return this.shownRepos().filter((r) => attentionOf(this.factsOf(r)) === node.attention);
     const out = new Map<string, Repo>();
     const visit = (f: LayoutFolder) => {
@@ -245,7 +316,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
       f.children.forEach(visit);
     };
     visit(node.folder);
-    return [...out.values()];
+    return this.withSubmodules([...out.values()]).filter((r) => out.has(r.key) || this.passesOwnFilter(r));
   }
 
   private folderHasContent(folder: LayoutFolder): boolean {
@@ -273,7 +344,15 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     }
     if (element.kind === 'unsorted') return this.unsortedRepos().map((repo) => ({ kind: 'repo', repo, parent: UNSORTED_ID }));
     if (element.kind === 'group') return this.reposUnder(element).map((repo) => ({ kind: 'repo', repo, parent: 'group:' + element.attention }));
+    if (element.kind === 'repo') return this.visibleSubmodules(element.repo).map((repo) => ({ kind: 'repo', repo, parent: 'sub:' + element.repo.key }));
     return [];
+  }
+
+  /** The tree node a repo is shown as: under its parent repo when nested, else in its folder or Unsorted. */
+  private nodeOf(repo: Repo): RepoNode {
+    const parent = this.nesting ? this.parentOf(repo) : undefined;
+    if (parent) return { kind: 'repo', repo, parent: 'sub:' + parent.key };
+    return { kind: 'repo', repo, parent: folderOfRepo(this.layout, repo.key)?.id ?? UNSORTED_ID };
   }
 
   getParent(element: Node): Node | undefined {
@@ -283,6 +362,10 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
       return undefined;
     }
     if (element.kind === 'repo') {
+      if (element.parent.startsWith('sub:')) {
+        const parent = this.manager.get(element.parent.slice(4));
+        return parent ? this.nodeOf(parent) : undefined;
+      }
       if (element.parent === UNSORTED_ID) return this.layout.folders.length ? { kind: 'unsorted' } : undefined;
       if (element.parent.startsWith('group:')) return { kind: 'group', attention: element.parent.slice(6) as Attention };
       for (const { folder, parent } of walkFolders(this.layout.folders)) if (folder.id === element.parent) return { kind: 'folder', folder, parentId: parent?.id ?? null };
@@ -345,7 +428,8 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     const facts = this.factsOf(r);
     const att = attentionOf(facts);
     const hidden = this.isHidden(r);
-    const item = new vscode.TreeItem(r.name, vscode.TreeItemCollapsibleState.None);
+    const kids = this.visibleSubmodules(r).length;
+    const item = new vscode.TreeItem(r.name, kids ? this.collapsible('sub:' + r.key) : vscode.TreeItemCollapsibleState.None);
     item.id = node.parent + '/' + r.key;
     const badges = badgeText(facts);
     const info = this.forgeService?.info(r);
@@ -355,9 +439,14 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     else if (!r.loaded) item.iconPath = new vscode.ThemeIcon('loading~spin');
     else {
       const [icon, color] = ATTENTION_ICON[att];
-      item.iconPath = new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
+      // Submodules keep the warning and error icons, but otherwise get their own icon in the submodule color.
+      item.iconPath =
+        r.superRoot && att !== 'conflict' && att !== 'error'
+          ? new vscode.ThemeIcon('file-submodule', new vscode.ThemeColor('canopy.submoduleForeground'))
+          : new vscode.ThemeIcon(icon, color ? new vscode.ThemeColor(color) : undefined);
     }
     const flags = ['repo'];
+    if (r.superRoot) flags.push('submodule');
     if (r.remotes.size) flags.push('remote');
     if (r.behind) flags.push('behind');
     if (r.ahead) flags.push('ahead');
@@ -384,6 +473,10 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   private tooltip(r: Repo, f: RepoFacts): vscode.MarkdownString {
     const md = new vscode.MarkdownString(undefined, true);
     md.appendMarkdown(`**${escapeMd(r.name)}**  \n`);
+    if (r.superRoot) {
+      const parent = this.parentOf(r);
+      md.appendMarkdown(`$(file-submodule) submodule of ${parent ? '**' + escapeMd(parent.name) + '**' : '`' + escapeMd(r.superRoot) + '`'}${f.submoduleMoved ? ' · checked out at a different commit than the parent records' : ''}  \n`);
+    }
     md.appendMarkdown(`$(git-branch) \`${escapeMd(r.branchLabel)}\`${r.upstream ? ` → \`${escapeMd(r.upstream)}\`` : r.branch ? ' (no upstream)' : ''}  \n`);
     if (r.operation) md.appendMarkdown(`$(warning) ${operationLabel(r.operation)} in progress  \n`);
     if (f.conflicts) md.appendMarkdown(`$(warning) ${f.conflicts} conflicted files  \n`);
@@ -456,7 +549,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   }
 
   private async onExpand(node: Node, collapsed: boolean): Promise<void> {
-    const id = node.kind === 'folder' ? node.folder.id : node.kind === 'unsorted' ? UNSORTED_ID : node.kind === 'group' ? 'group:' + node.attention : undefined;
+    const id = node.kind === 'folder' ? node.folder.id : node.kind === 'unsorted' ? UNSORTED_ID : node.kind === 'group' ? 'group:' + node.attention : node.kind === 'repo' ? 'sub:' + node.repo.key : undefined;
     if (id) await this.state.setCollapsed(id, collapsed);
   }
 
@@ -470,7 +563,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
 
   handleDrag(source: readonly Node[], data: vscode.DataTransfer): void {
     const payload = source
-      .map((n) => (n.kind === 'repo' ? { t: 'repo', key: n.repo.key } : n.kind === 'folder' ? { t: 'folder', id: n.folder.id } : undefined))
+      .map((n) => (n.kind === 'repo' ? (this.isNested(n.repo) ? undefined : { t: 'repo', key: n.repo.key }) : n.kind === 'folder' ? { t: 'folder', id: n.folder.id } : undefined))
       .filter(Boolean);
     if (payload.length) data.set(MIME, new vscode.DataTransferItem(JSON.stringify(payload)));
   }

@@ -126,6 +126,7 @@ export class GitOps {
       fetchPrune: many((rs) => this.fetch(rs, { prune: true })),
       fetchAllRemotes: many((rs) => this.fetch(rs, { allRemotes: true })),
       checkout: one((r) => this.checkout(r)),
+      switchBranch: one((r) => this.checkout(r)),
       createBranch: one((r) => this.createBranch(r)),
       createBranchFrom: one((r) => this.createBranchFrom(r)),
       renameBranch: one((r) => this.renameBranch(r)),
@@ -285,7 +286,7 @@ export class GitOps {
   // --- branches ---------------------------------------------------------------
 
   private async checkout(r: Repo): Promise<void> {
-    const pick = await pickBranch(r, { placeHolder: `Checkout in ${r.name}`, excludeCurrent: true, allowCreate: true, tags: true });
+    const pick = await pickBranch(r, { placeHolder: `Switch branch in ${r.name} (now on ${r.branchLabel})`, excludeCurrent: true, allowCreate: true, tags: true });
     if (!pick) return;
     if (pick.kind === 'create') return this.createBranch(r);
     await this.switchTo(r, pick.kind, pick.name);

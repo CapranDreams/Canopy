@@ -2,7 +2,7 @@
   "name": "canopy",
   "displayName": "CANOPY",
   "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
-  "version": "0.3.11",
+  "version": "0.4.0",
   "publisher": "MyriadArtificia",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -31,6 +31,16 @@
   ],
   "contributes": {
     "colors": [
+      {
+        "id": "canopy.submoduleForeground",
+        "description": "CANOPY Repositories: icon color of a repository that is a Git submodule of another one.",
+        "defaults": {
+          "dark": "#4ec9b0",
+          "light": "#0e7c86",
+          "highContrast": "#4ec9b0",
+          "highContrastLight": "#0e7c86"
+        }
+      },
       {
         "id": "canopy.pipelineFailedForeground",
         "description": "CANOPY Repositories: badge and name color of a repository whose pipeline failed (highest priority).",
@@ -307,6 +317,12 @@
         "command": "canopy.checkout",
         "title": "Checkout to…",
         "category": "CANOPY"
+      },
+      {
+        "command": "canopy.switchBranch",
+        "title": "Switch Branch…",
+        "category": "CANOPY",
+        "icon": "$(git-branch)"
       },
       {
         "command": "canopy.createBranch",
@@ -920,6 +936,11 @@
         }
       ],
       "view/item/context": [
+        {
+          "command": "canopy.switchBranch",
+          "group": "inline@0",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
         {
           "command": "canopy.fetch",
           "group": "inline@1",

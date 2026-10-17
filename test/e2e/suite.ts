@@ -1,5 +1,6 @@
 /** Runs inside the VS Code extension host (see runE2e.ts). Plain assertions; no test framework. */
 import * as assert from 'node:assert/strict';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as http from 'node:http';
 import * as path from 'node:path';
@@ -7,6 +8,7 @@ import * as vscode from 'vscode';
 import type { CanopyApi } from '../../src/extension';
 import { addFolder, moveRepos } from '../../src/model/layout';
 import { parseProfile } from '../../src/model/profile';
+import { priorityDecoration } from '../../src/tree';
 
 async function waitFor<T>(what: string, fn: () => T | undefined | false, timeoutMs = 20000): Promise<T> {
   const start = Date.now();
@@ -309,6 +311,53 @@ export async function run(): Promise<void> {
     await waitFor('beta on main', () => beta.branch === 'main');
     await panel.onMessage({ type: 'checkoutBranch', name: 'feature/x', remote: false });
     await waitFor('beta back on feature/x', () => beta.branch === 'feature/x');
+  });
+
+  await step('submodules nest under their parent with their own icon, and the moved marker appears', async () => {
+    const sh = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd, stdio: 'pipe' }).toString();
+    const base = path.join(root, 'work', 'submodule-test');
+    const lib = path.join(base, 'lib-src');
+    const host = path.join(base, 'host');
+    fs.mkdirSync(lib, { recursive: true });
+    fs.mkdirSync(host, { recursive: true });
+    sh(lib, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(lib, 'a.txt'), 'one\n');
+    sh(lib, 'add', '.');
+    sh(lib, 'commit', '-q', '-m', 'lib one');
+    sh(host, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(host, 'readme.md'), '# host\n');
+    sh(host, 'add', '.');
+    sh(host, 'commit', '-q', '-m', 'host one');
+    sh(host, 'submodule', 'add', '-q', lib, 'libs/lib');
+    sh(host, 'commit', '-q', '-m', 'add submodule');
+    const added = await manager.addRepositories([host, path.join(host, 'libs', 'lib')]);
+    assert.equal(added.length, 2, `both repositories were registered (got ${added.map((r) => r.root).join(', ') || 'none'})`);
+    const [hostRepo, subRepo] = added;
+    await waitFor('both repositories loaded', () => hostRepo.loaded && subRepo.loaded && subRepo.superRoot);
+    assert.equal(tree.parentOf(subRepo)?.key, hostRepo.key, 'submodule knows its parent');
+
+    const topLevel = tree.getChildren().flatMap((n) => (n.kind === 'unsorted' || n.kind === 'folder' ? tree.getChildren(n) : [n]));
+    assert.ok(topLevel.some((n) => n.kind === 'repo' && n.repo === hostRepo), 'parent is listed');
+    assert.ok(!topLevel.some((n) => n.kind === 'repo' && n.repo === subRepo), 'submodule is not listed at the top level');
+    const hostNode = topLevel.find((n) => n.kind === 'repo' && n.repo === hostRepo)!;
+    const kids = tree.getChildren(hostNode);
+    assert.deepEqual(kids.map((k) => (k.kind === 'repo' ? k.repo.name : '')), ['lib'], 'submodule is a child of its parent');
+    assert.notEqual(tree.getTreeItem(hostNode).collapsibleState, vscode.TreeItemCollapsibleState.None, 'parent is expandable');
+    const subItem = tree.getTreeItem(kids[0]);
+    assert.equal((subItem.iconPath as vscode.ThemeIcon).id, 'file-submodule', 'submodule icon');
+    assert.match(String(subItem.contextValue), /submodule/);
+    assert.equal(tree.getParent(kids[0])?.kind === 'repo' && (tree.getParent(kids[0]) as { repo: unknown }).repo === hostRepo, true);
+
+    // A new commit inside the submodule leaves it ahead of what the parent records.
+    fs.writeFileSync(path.join(host, 'libs', 'lib', 'a.txt'), 'two\n');
+    sh(path.join(host, 'libs', 'lib'), 'commit', '-q', '-am', 'lib two');
+    await manager.refresh(hostRepo);
+    await manager.refresh(subRepo);
+    assert.equal(tree.factsOf(subRepo).submoduleMoved, true, 'moved marker');
+    // The new commit is also unpushed, and push outranks the moved marker; with nothing else pending the marker shows.
+    assert.equal(priorityDecoration(tree.factsOf(subRepo))?.badge, '↑1');
+    assert.equal(priorityDecoration({ ...tree.factsOf(subRepo), ahead: 0, behind: 0, changed: 0 })?.badge, '≠');
   });
 
   const failed = results.filter((r) => !r[1]);
