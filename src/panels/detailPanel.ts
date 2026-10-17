@@ -162,6 +162,7 @@ export class DetailPanel implements vscode.Disposable {
         error: r.error,
         lastFetch: r.lastFetch,
         fetching: r.fetching,
+        activity: [...r.activity],
         remotes: [...r.remotes.keys()],
         stashCount: stashes.length,
         staged: r.staged,
@@ -227,16 +228,9 @@ export class DetailPanel implements vscode.Disposable {
     if (!r) return;
     const paths = Array.isArray(m.paths) ? (m.paths as string[]) : [];
     switch (m.type) {
-      case 'cmd': {
-        const id = String(m.id);
-        try {
-          await vscode.commands.executeCommand('canopy.' + id, r);
-        } finally {
-          // Lets the webview stop the progress animation on the button that started this.
-          void this.panel?.webview.postMessage({ type: 'cmdDone', id, root: r.root });
-        }
+      case 'cmd':
+        await vscode.commands.executeCommand('canopy.' + String(m.id), r);
         break;
-      }
       case 'stage':
         await this.ops.stage(r, paths.length ? paths : ['.']);
         break;

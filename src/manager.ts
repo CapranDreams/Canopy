@@ -258,6 +258,7 @@ export class RepoManager implements vscode.Disposable {
     const prune = opts.prune ?? vscode.workspace.getConfiguration('canopy').get<boolean>('fetchPrune', false);
     const args = ['fetch', ...(opts.allRemotes || repo.remotes.size > 1 ? ['--all'] : []), ...(prune ? ['--prune'] : [])];
     repo.fetching = true;
+    repo.activity.push('Fetching');
     this.fetchingCount++;
     this._onDidChange.fire(repo);
     this._onDidChangeFetching.fire();
@@ -272,6 +273,8 @@ export class RepoManager implements vscode.Disposable {
       return false;
     } finally {
       repo.fetching = false;
+      const i = repo.activity.lastIndexOf('Fetching');
+      if (i >= 0) repo.activity.splice(i, 1);
       this.fetchingCount--;
       this._onDidChangeFetching.fire();
       await this.refresh(repo);

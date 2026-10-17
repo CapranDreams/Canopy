@@ -12,8 +12,29 @@ import { askRefName, listBranches, listStashes, listTags, listWorktrees, pickBra
 import { validateCloneUrl } from '../util/remote';
 import { mapLimit } from '../util/limit';
 
-/** Git commands that talk to a remote, and how the tree describes them while they run. */
-const ACTIVITY: Record<string, string> = { pull: 'Pulling', push: 'Pushing', submodule: 'Updating submodules' };
+/** How the views describe a running git command (the tree's spinner text and the details panel's busy button). */
+const ACTIVITY: Record<string, string> = {
+  pull: 'Pulling',
+  push: 'Pushing',
+  fetch: 'Fetching',
+  commit: 'Committing',
+  stash: 'Stashing',
+  switch: 'Switching branch',
+  checkout: 'Switching branch',
+  branch: 'Updating branches',
+  tag: 'Tagging',
+  merge: 'Merging',
+  rebase: 'Rebasing',
+  'cherry-pick': 'Cherry-picking',
+  revert: 'Reverting',
+  reset: 'Resetting',
+  clean: 'Cleaning',
+  worktree: 'Updating worktrees',
+  remote: 'Updating remotes',
+  submodule: 'Updating submodules'
+};
+/** Staging commands finish instantly; a spinner for them would only flicker. */
+const NO_ACTIVITY = new Set(['add', 'restore', 'rm']);
 
 export interface ExecOptions {
   title?: string;
@@ -42,7 +63,7 @@ export class GitOps {
   async exec(repo: Repo, args: string[], opts: ExecOptions = {}): Promise<string | undefined> {
     const title = opts.title ?? `git ${args[0]}`;
     const run = () => repo.git(args, { input: opts.input, env: opts.env, priority: true, timeoutMs: opts.timeoutMs ?? 10 * 60_000 });
-    const activity = ACTIVITY[args[0]];
+    const activity = NO_ACTIVITY.has(args[0]) ? undefined : (ACTIVITY[args[0]] ?? 'Working');
     if (activity) this.manager.beginActivity(repo, activity);
     try {
       const out = opts.notify
@@ -273,11 +294,16 @@ export class GitOps {
         if (repos.length === 1 && r.branch) await this.publish(r);
         return repos.length === 1;
       }
-      if (r.behind > 0 || repos.length > 1) {
-        if ((await this.exec(r, ['pull', ...(rebase ? ['--rebase', '--autostash'] : [])], { title: 'Pull', quiet: repos.length > 1 })) === undefined) return false;
+      this.manager.beginActivity(r, 'Syncing');
+      try {
+        if (r.behind > 0 || repos.length > 1) {
+          if ((await this.exec(r, ['pull', ...(rebase ? ['--rebase', '--autostash'] : [])], { title: 'Pull', quiet: repos.length > 1 })) === undefined) return false;
+        }
+        if (r.ahead > 0) return (await this.exec(r, ['push'], { title: 'Push', quiet: repos.length > 1 })) !== undefined;
+        return true;
+      } finally {
+        this.manager.endActivity(r, 'Syncing');
       }
-      if (r.ahead > 0) return (await this.exec(r, ['push'], { title: 'Push', quiet: repos.length > 1 })) !== undefined;
-      return true;
     });
   }
 

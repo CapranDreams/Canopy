@@ -434,7 +434,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     const badges = badgeText(facts);
     const info = this.forgeService?.info(r);
     const forge = info ? [info.pipeline ? pipelineSymbol(info.pipeline.status) : '', info.mr ? `${FORGE_WORDS[info.provider].prefix}${info.mr.iid}${info.mr.draft ? ' draft' : ''}` : ''].filter(Boolean).join(' ') : '';
-    const activity = r.activity[r.activity.length - 1] ?? (r.fetching ? 'Fetching' : '');
+    const activity = r.activity[r.activity.length - 1] ?? '';
     item.description = [activity ? `${activity}…` : '', r.branchLabel, badges, forge, hidden && this.state.editMode ? '(hidden)' : ''].filter(Boolean).join('  ');
     if (activity) item.iconPath = new vscode.ThemeIcon('sync~spin');
     else if (!r.loaded) item.iconPath = new vscode.ThemeIcon('loading~spin');

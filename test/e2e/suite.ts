@@ -332,6 +332,30 @@ export async function run(): Promise<void> {
     // A failing command must clear it too.
     await ops.exec(alpha, ['push', 'no-such-remote', 'main'], { quiet: true });
     assert.deepEqual(alpha.activity, []);
+
+    // Fetch, sync and other git actions share the same marker.
+    const fetching = manager.fetch(alpha);
+    assert.ok((alpha.activity as string[]).includes('Fetching'), 'fetch marks the repo busy');
+    await fetching;
+    assert.deepEqual(alpha.activity, []);
+
+    // Earlier steps left alpha on a branch without an upstream; sync needs one.
+    await alpha.git(['switch', 'main']);
+    // ...and something to push, so the sync has real work to do.
+    await alpha.git(['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', 'commit', '--allow-empty', '-q', '-m', 'sync test']);
+    await manager.refresh(alpha);
+    assert.ok(alpha.upstream && alpha.ahead > 0, 'alpha has an upstream and a commit to push');
+    const syncing = ops.sync([alpha]);
+    assert.ok((alpha.activity as string[]).includes('Syncing'), 'sync holds one steady marker around its pull and push');
+    await syncing;
+    assert.deepEqual(alpha.activity, [], 'nothing left behind after a sync');
+
+    const stashing = ops.exec(alpha, ['stash', 'list'], { quiet: true });
+    assert.deepEqual(alpha.activity, ['Stashing']);
+    await stashing;
+    const staging = ops.exec(alpha, ['add', '--dry-run', '.'], { quiet: true });
+    assert.deepEqual(alpha.activity, [], 'instant staging commands do not flicker a spinner');
+    await staging;
   });
 
   await step('submodules nest under their parent with their own icon, and the moved marker appears', async () => {

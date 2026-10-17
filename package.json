@@ -2,9 +2,17 @@
   "name": "canopy",
   "displayName": "CANOPY",
   "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
-  "version": "0.4.1",
+  "version": "1.0.0",
   "publisher": "MyriadArtificia",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/CapranDreams/Canopy.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CapranDreams/Canopy/issues"
+  },
+  "homepage": "https://github.com/CapranDreams/Canopy#readme",
   "icon": "media/icon.png",
   "engines": {
     "vscode": "^1.95.0"
@@ -1903,6 +1911,5 @@
   "galleryBanner": {
     "color": "#10241e",
     "theme": "dark"
-  },
-  "preview": true
+  }
 }
