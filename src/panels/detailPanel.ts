@@ -1,6 +1,8 @@
+import { promises as fsp } from 'node:fs';
+import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { GitOps } from '../commands/gitOps';
-import { Commit, FileEntry, LOG_FORMAT, parseLog, parseNameStatusZ } from '../git/parse';
+import { Commit, FileEntry, LOG_FORMAT, parseLog, parseNameStatusZ, parseNumstatZ, withLineStats } from '../git/parse';
 import { layoutGraph } from '../git/graph';
 import { openChange, openCommitFileDiff, openFile, openHeadDiff, openMergeEditor, openRefDiff } from '../gitContent';
 import { Log } from '../log';
@@ -15,6 +17,13 @@ import type { ForgeHub } from '../forge/hub';
 type Scope = 'all' | 'local' | 'current';
 
 const SHA = /^[0-9a-f]{4,64}$/i;
+
+type LineStats = Map<string, [number, number]>;
+interface WipStats {
+  head: LineStats;
+  staged: LineStats;
+  unstaged: LineStats;
+}
 
 /** The per-repo details editor: toolbar, changes and commit graph. One panel, retargeted on selection. */
 export class DetailPanel implements vscode.Disposable {
@@ -105,7 +114,12 @@ export class DetailPanel implements vscode.Disposable {
   private async post(): Promise<void> {
     const r = this.repo;
     if (!r || !this.panel) return;
-    const [graph, stashes, branchList] = await Promise.all([this.loadGraph(r), listStashes(r).catch(() => []), listBranches(r).catch(() => [])]);
+    const [graph, stashes, branchList, wipStats] = await Promise.all([
+      this.loadGraph(r),
+      listStashes(r).catch(() => []),
+      listBranches(r).catch(() => []),
+      this.wipLineStats(r).catch((): WipStats => ({ head: new Map(), staged: new Map(), unstaged: new Map() }))
+    ]);
     // for-each-ref already sorts newest first; keep that order within local and remote.
     const branches = {
       local: branchList.filter((b) => !b.remote).map((b) => ({ name: b.name, time: b.time, current: b.current, upstream: b.upstream ?? null })),
@@ -145,7 +159,8 @@ export class DetailPanel implements vscode.Disposable {
         conflicts: r.conflicts,
         forge
       },
-      graph
+      graph,
+      wipStats: { head: Object.fromEntries(wipStats.head), staged: Object.fromEntries(wipStats.staged), unstaged: Object.fromEntries(wipStats.unstaged) }
     });
   }
 
@@ -272,10 +287,38 @@ export class DetailPanel implements vscode.Disposable {
     }
   }
 
-  /** Files a commit changed, against its first parent (so merges list what they brought in). */
+  /** Files a commit changed, with line counts, against its first parent (so merges list what they brought in). */
   private async commitFiles(r: Repo, sha: string): Promise<FileEntry[]> {
-    const out = await r.git(['diff-tree', '-r', '-z', '--name-status', '-M', '--root', '--no-commit-id', '--diff-merges=first-parent', sha, '--'], { readOnly: true });
-    return parseNameStatusZ(out);
+    const diff = (format: string) => r.git(['diff-tree', '-r', '-z', format, '-M', '--root', '--no-commit-id', '--diff-merges=first-parent', sha, '--'], { readOnly: true });
+    const [names, stats] = await Promise.all([diff('--name-status'), diff('--numstat').catch(() => '')]);
+    return withLineStats(parseNameStatusZ(names), parseNumstatZ(stats));
+  }
+
+  /**
+   * Lines added / deleted per uncommitted file: `head` is everything against HEAD (graph row), `staged`
+   * is index vs HEAD and `unstaged` is working tree vs index (Changes list). Untracked files count as all added.
+   */
+  private async wipLineStats(r: Repo): Promise<WipStats> {
+    const none: WipStats = { head: new Map(), staged: new Map(), unstaged: new Map() };
+    if (!r.changed) return none;
+    const numstat = async (args: string[]) => parseNumstatZ(await r.git(['diff', '-z', '--numstat', '-M', ...args, '--'], { readOnly: true }).catch(() => ''));
+    const [head, staged, unstaged] = await Promise.all([r.status?.oid ? numstat(['HEAD']) : numstat(['--cached']), numstat(['--cached']), numstat([])]);
+    const untracked = r.unstaged.filter((f) => f.status === 'U' && !f.path.endsWith('/')).slice(0, 200);
+    await Promise.all(
+      untracked.map(async (f) => {
+        const abs = path.join(r.root, f.path);
+        const st = await fsp.stat(abs).catch(() => undefined);
+        if (!st?.isFile() || st.size > 2_000_000) return;
+        const buf = await fsp.readFile(abs);
+        if (buf.subarray(0, 8000).includes(0)) return; // binary
+        let lines = 0;
+        for (const b of buf) if (b === 10) lines++;
+        if (buf.length && buf[buf.length - 1] !== 10) lines++;
+        head.set(f.path, [lines, 0]);
+        unstaged.set(f.path, [lines, 0]);
+      })
+    );
+    return { head, staged, unstaged };
   }
 
   private async commitAction(r: Repo, action: string, sha: string, ref?: string): Promise<void> {

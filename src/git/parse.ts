@@ -5,6 +5,9 @@ export interface FileEntry {
   origPath?: string;
   /** One-letter status as shown in the UI: M A D R C(onflict) U(ntracked) T. */
   status: string;
+  /** Lines added / deleted, when known (absent for binary files). */
+  added?: number;
+  deleted?: number;
 }
 
 export interface StatusInfo {
@@ -242,4 +245,30 @@ export function parseNameStatusZ(out: string): FileEntry[] {
     }
   }
   return files;
+}
+
+/** Parses `git diff --numstat -z` into path -> [added, deleted]; binary files ('-') are left out. */
+export function parseNumstatZ(out: string): Map<string, [number, number]> {
+  const parts = out.split(' ');
+  const stats = new Map<string, [number, number]>();
+  for (let i = 0; i < parts.length; i++) {
+    const m = /^(\d+|-)	(\d+|-)	(.*)$/s.exec(parts[i]);
+    if (!m) continue;
+    let path = m[3];
+    if (path === '') {
+      // Rename or copy: the old and new paths follow as their own records.
+      i += 2;
+      path = parts[i];
+    }
+    if (path !== undefined && m[1] !== '-' && m[2] !== '-') stats.set(path, [Number(m[1]), Number(m[2])]);
+  }
+  return stats;
+}
+
+/** Copies line counts from `stats` onto matching files. */
+export function withLineStats(files: FileEntry[], stats: Map<string, [number, number]>): FileEntry[] {
+  return files.map((f) => {
+    const s = stats.get(f.path);
+    return s ? { ...f, added: s[0], deleted: s[1] } : f;
+  });
 }

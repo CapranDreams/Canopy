@@ -32,6 +32,7 @@
     merge: '<circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="17" r="2"/><path d="M6 7v10M6 8c0 6 10 4 11 8"/>',
     rebase: '<path d="M4 7h12l-3-3M20 17H8l3 3"/>',
     stash: '<path d="M4 6h16v4H4zM6 10v9h12v-9M10 14h4"/>',
+    prune: '<circle cx="6" cy="7" r="3"/><circle cx="6" cy="17" r="3"/><path d="M8.5 8.5L20 18M8.5 15.5L20 6"/>',
     more: '<path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="3"/>',
     chev: '<path d="M6 9l6 6 6-6"/>',
     file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4"/>',
@@ -57,6 +58,12 @@
     branch: [],
     merge: [['Merge Branch…', 'merge'], ['Merge (No Fast-Forward)…', 'mergeNoFf'], ['Squash Merge…', 'mergeSquash'], { h: 'Merge tools' }, ['Open Conflicts in Merge Editor', 'openConflicts'], ['Open External Merge Tool', 'openMergeTool'], ['Accept All Current…', 'acceptAllCurrent'], ['Accept All Incoming…', 'acceptAllIncoming'], null, ['Continue', 'continueOperation'], ['Abort…', 'abortOperation', true]],
     rebase: [['Rebase onto Upstream', 'rebaseOntoUpstream'], ['Rebase onto…', 'rebaseOnto'], ['Interactive Rebase…', 'rebaseInteractive'], null, ['Continue Rebase', 'continueOperation'], ['Skip Commit', 'skipOperation'], ['Abort Rebase…', 'abortOperation', true]],
+    prune: [
+      { h: 'Remote branches' }, ['Prune Remote Branches Deleted on Server', 'pruneRemoteBranches'],
+      { h: 'Local branches' }, ['Delete Local Branches Gone on Remote…', 'pruneGoneBranches', true], ['Delete Local Branches Already Merged…', 'pruneMergedBranches', true],
+      { h: 'All at once' }, ['Clean Up: Prune Remotes, Delete Gone and Merged Locals…', 'pruneAll', true],
+      null, ['Prune Stale Worktrees', 'pruneWorktrees']
+    ],
     stash: [['Stash', 'stash'], ['Stash (Include Untracked)', 'stashIncludeUntracked'], ['Stash Staged', 'stashStaged'], null, ['Apply Latest', 'stashApplyLatest'], ['Pop Latest', 'stashPopLatest'], ['Apply…', 'stashApply'], ['Pop…', 'stashPop'], null, ['Drop…', 'stashDrop', true], ['Drop All…', 'stashClear', true]],
     more: [
       { h: 'Commit' }, ['Commit Staged…', 'commit'], ['Commit All…', 'commitAll'], ['Amend Last Commit…', 'commitAmend'], ['Undo Last Commit', 'undoLastCommit'],
@@ -172,7 +179,7 @@
       ${sync}
       ${tb('pull', 'Pull', 'pull')}${tb('push', 'Push', 'push')}${tb('fetch', 'Fetch', 'fetch')}
       ${tb('branch', r.branchLabel, 'branch', 'branchbtn')}
-      ${tb('merge', 'Merge', 'merge')}${tb('rebase', 'Rebase', 'rebase')}${tb('stash', 'Stash', 'stash')}
+      ${tb('merge', 'Merge', 'merge')}${tb('rebase', 'Rebase', 'rebase')}${tb('stash', 'Stash', 'stash')}${tb('prune', 'Prune', 'prune')}
       ${r.forge && r.forge.kind === 'connected' ? tb('forge', (WORDS[r.forge.provider] || WORDS.gitlab).name, (WORDS[r.forge.provider] || WORDS.gitlab).icon) : ''}
       ${tb('more', 'More', 'more')}
       <button class="icon-btn" data-act="refresh" title="Refresh" aria-label="Refresh">${icon('refresh')}</button>
@@ -257,7 +264,7 @@
              <button class="icon-btn danger" data-act="discard" data-path="${p}" title="Discard changes" aria-label="Discard changes in ${p}">${icon('discard')}</button>
              <button class="icon-btn" data-act="stage" data-path="${p}" title="Stage" aria-label="Stage ${p}">${icon('plus')}</button>`;
     return `<div class="file"><button class="open" data-act="${kind === 'conflict' ? 'mergeEditor' : 'open'}" data-path="${p}" data-staged="${kind === 'staged'}" title="${p}${f.origPath ? ' (from ' + esc(f.origPath) + ')' : ''}">
-        <span class="st st-${esc(f.status)}">${esc(f.status)}</span><span class="name">${esc(name)}</span><span class="dir">${esc(dir)}</span></button>
+        <span class="st st-${esc(f.status)}">${esc(f.status)}</span><span class="name">${esc(name)}</span><span class="dir">${esc(dir)}</span>${lineStats(f)}</button>
         <span class="acts">${acts}</span></div>`;
   }
 
@@ -279,8 +286,8 @@
         ${openMenu === 'commit' ? menuHtml('commit', 'right') : ''}
       </div>
       ${section('Merge conflicts', r.conflicts, 'conflict', '')}
-      ${section('Staged changes', r.staged, 'staged', `<button class="icon-btn" data-act="unstage-all" title="Unstage all" aria-label="Unstage all">${icon('minus')}</button>`)}
-      ${section('Changes', r.unstaged, 'unstaged', `<button class="icon-btn danger" data-act="discard-all" title="Discard all changes" aria-label="Discard all changes">${icon('discard')}</button><button class="icon-btn" data-act="stage-all" title="Stage all" aria-label="Stage all">${icon('plus')}</button>`)}
+      ${section('Staged changes', withStats(r.staged, 'staged'), 'staged', `<button class="icon-btn" data-act="unstage-all" title="Unstage all" aria-label="Unstage all">${icon('minus')}</button>`)}
+      ${section('Changes', withStats(r.unstaged, 'unstaged'), 'unstaged', `<button class="icon-btn danger" data-act="discard-all" title="Discard all changes" aria-label="Discard all changes">${icon('discard')}</button><button class="icon-btn" data-act="stage-all" title="Stage all" aria-label="Stage all">${icon('plus')}</button>`)}
       ${total ? '' : '<div class="empty">Working tree clean.</div>'}
     </section>`;
   }
@@ -330,13 +337,19 @@
     </section>`;
   }
 
+  /** Attaches line counts from state.wipStats[which] ('head' | 'staged' | 'unstaged') to a file list. */
+  function withStats(files, which) {
+    const stats = (state.wipStats && state.wipStats[which]) || {};
+    return files.map((f) => (stats[f.path] ? { ...f, added: stats[f.path][0], deleted: stats[f.path][1] } : f));
+  }
+
   /** Uncommitted files (conflicts, staged, unstaged) as one list, one entry per path. */
   function wipFiles() {
     const r = state.repo;
     const seen = new Map();
     for (const f of r.conflicts) seen.set(f.path, f);
     for (const f of [...r.staged, ...r.unstaged]) if (!seen.has(f.path)) seen.set(f.path, f);
-    return [...seen.values()];
+    return withStats([...seen.values()], 'head');
   }
 
   /** The changed-file list shown under the selected graph row, with the lanes carried through it. */
@@ -360,6 +373,12 @@
       <div class="cf-list">${body}</div></div>`;
   }
 
+  /** "+12 −3" for a file whose line counts are known (not for binary files). */
+  function lineStats(f) {
+    if (typeof f.added !== 'number') return '';
+    return `<span class="ln" title="${f.added} added, ${f.deleted} deleted"><span class="ln-add">+${f.added}</span><span class="ln-del">−${f.deleted}</span></span>`;
+  }
+
   function commitFileRow(f, sha) {
     const slash = f.path.lastIndexOf('/');
     const name = slash >= 0 ? f.path.slice(slash + 1) : f.path;
@@ -368,7 +387,7 @@
     const title = `${p}${f.origPath ? ' (from ' + esc(f.origPath) + ')' : ''}`;
     const openFile = f.status === 'D' ? '' : `<span class="acts"><button class="icon-btn" data-act="open-file" data-path="${p}" title="Open file" aria-label="Open ${p}">${icon('file')}</button></span>`;
     return `<div class="file"><button class="open" data-act="commit-file" data-sha="${esc(sha)}" data-path="${p}" data-orig="${esc(f.origPath || '')}" data-status="${esc(f.status)}" title="${title}">
-        <span class="st st-${esc(f.status)}">${esc(f.status)}</span><span class="name">${esc(name)}</span><span class="dir">${esc(dir)}</span></button>${openFile}</div>`;
+        <span class="st st-${esc(f.status)}">${esc(f.status)}</span><span class="name">${esc(name)}</span><span class="dir">${esc(dir)}</span>${lineStats(f)}</button>${openFile}</div>`;
   }
 
   function contextMenu() {

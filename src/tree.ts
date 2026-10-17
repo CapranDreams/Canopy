@@ -16,15 +16,17 @@ export type RepoNode = { kind: 'repo'; repo: Repo; parent: string };
 export type Node = FolderNode | UnsortedNode | GroupNode | RepoNode;
 
 const UNSORTED_ID = '__unsorted';
+/** Scheme of repo rows' resourceUri, so only CANOPY's decorations (not Git's or Problems') apply to them. */
+const REPO_SCHEME = 'canopy-repo';
 const MIME = 'application/vnd.code.tree.canopy.repos';
 
 const ATTENTION_ICON: Record<Attention, [string, string | undefined]> = {
   conflict: ['warning', 'gitDecoration.conflictingResourceForeground'],
   error: ['error', 'errorForeground'],
   diverged: ['repo-forked', 'charts.purple'],
-  behind: ['repo-pull', 'charts.blue'],
-  changes: ['repo', 'gitDecoration.modifiedResourceForeground'],
-  ahead: ['repo-push', 'charts.green'],
+  behind: ['repo-pull', 'canopy.behindForeground'],
+  changes: ['repo', 'canopy.changesForeground'],
+  ahead: ['repo-push', 'canopy.aheadForeground'],
   unpublished: ['repo', 'descriptionForeground'],
   clean: ['repo', undefined]
 };
@@ -39,15 +41,32 @@ export function badgeText(r: RepoFacts): string {
   return parts.join(' ');
 }
 
+/** A count squeezed into a two-character tree badge. */
+const badgeCount = (sym: string, n: number) => sym + (n > 9 ? '+' : String(n));
+
+/**
+ * The single highest-priority state shown as a row's badge (and name color):
+ * failed pipeline, then commits to push, commits to pull, uncommitted changes.
+ */
+export function priorityDecoration(r: RepoFacts): { badge: string; color: string; tooltip: string } | undefined {
+  if (r.ci === 'failed') return { badge: '✕', color: 'canopy.pipelineFailedForeground', tooltip: 'Pipeline failed' };
+  if (r.ahead) return { badge: badgeCount('↑', r.ahead), color: 'canopy.aheadForeground', tooltip: `${r.ahead} to push` };
+  if (r.behind) return { badge: badgeCount('↓', r.behind), color: 'canopy.behindForeground', tooltip: `${r.behind} to pull` };
+  if (r.changed) return { badge: badgeCount('●', r.changed), color: 'canopy.changesForeground', tooltip: `${r.changed} changed` };
+  return undefined;
+}
+
 export function operationLabel(op: string): string {
   return { rebase: 'rebasing', merge: 'merging', 'cherry-pick': 'cherry-picking', revert: 'reverting', bisect: 'bisecting' }[op] ?? op;
 }
 
-export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragAndDropController<Node>, vscode.Disposable {
+export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragAndDropController<Node>, vscode.FileDecorationProvider, vscode.Disposable {
   readonly dragMimeTypes = [MIME];
   readonly dropMimeTypes = [MIME];
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
+  private readonly _onDidChangeFileDecorations = new vscode.EventEmitter<undefined>();
+  readonly onDidChangeFileDecorations = this._onDidChangeFileDecorations.event;
   readonly view: vscode.TreeView<Node>;
   private readonly disposables: vscode.Disposable[] = [];
   private layout: Layout;
@@ -71,6 +90,8 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     this.disposables.push(
       this.view,
       this._onDidChangeTreeData,
+      this._onDidChangeFileDecorations,
+      vscode.window.registerFileDecorationProvider(this),
       manager.onDidChange(() => this.scheduleRefresh()),
       store.onDidChangeLayout(() => {
         this.layout = store.layout;
@@ -100,6 +121,14 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     this.disposables.push(service.onDidChange(() => this.scheduleRefresh()));
   }
 
+  provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
+    if (uri.scheme !== REPO_SCHEME) return undefined;
+    const r = this.manager.get(uri.query);
+    if (!r || !r.loaded) return undefined;
+    const d = priorityDecoration(this.factsOf(r));
+    return d && new vscode.FileDecoration(d.badge, d.tooltip, new vscode.ThemeColor(d.color));
+  }
+
   get currentLayout(): Layout {
     return this.layout;
   }
@@ -118,12 +147,14 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = undefined;
       this._onDidChangeTreeData.fire(undefined);
+      this._onDidChangeFileDecorations.fire(undefined);
       this.updateChrome();
     }, 80);
   }
 
   refresh(): void {
     this._onDidChangeTreeData.fire(undefined);
+    this._onDidChangeFileDecorations.fire(undefined);
     this.updateChrome();
   }
 
@@ -340,7 +371,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     if (info?.pipeline?.status === 'failed' || info?.pipeline?.status === 'canceled') flags.push('pipelinefailed');
     item.contextValue = flags.join(':');
     item.tooltip = this.tooltip(r, facts);
-    item.resourceUri = vscode.Uri.file(r.root);
+    item.resourceUri = vscode.Uri.file(r.root).with({ scheme: REPO_SCHEME, query: r.key });
     if (this.state.editMode) {
       item.checkboxState = hidden ? vscode.TreeItemCheckboxState.Unchecked : vscode.TreeItemCheckboxState.Checked;
     } else if (vscode.workspace.getConfiguration('canopy').get<boolean>('openDetailsOnClick', true)) {

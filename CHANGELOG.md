@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.3.6
+- Changes list (left panel) shows lines added and deleted next to each file: staged files against HEAD, unstaged files against the index (new untracked files count every line as added; binary files show no counts).
+
+## 0.3.5
+- CI and the publish workflow now run on Node 24 (was 20). The test command's `**` glob needs Node 21 or newer, so tests failed on Node 20.
+
+## 0.3.4
+- New Prune menu in the details toolbar: prune remote branches deleted on the server, delete local branches gone on the remote or already merged (force-delete asks again for squash-merged ones), one-step Clean Up, and prune stale worktrees. The repository right-click Branch menu gets the same branch actions.
+- Commit graph file lists show lines added (green +n) and deleted (red −n) next to each file, for commits and for uncommitted changes (new untracked files count every line as added; binary files show no counts).
+- Repositories view: each repository shows one badge for its most urgent state, and its name takes the same color: failed pipeline (red ✕), commits to push (blue ↑), commits to pull (green ↓), uncommitted changes (yellow ●). Change the colors with workbench.colorCustomizations: canopy.pipelineFailedForeground, canopy.aheadForeground, canopy.behindForeground, canopy.changesForeground.
+- Diffs opened from the details panel reuse one editor group beside it instead of splitting a new group per file, and each opens as a preview tab that the next one replaces. New setting canopy.diff.placement: reuseGroup (default) or column2.
+
 ## 0.3.2
 - Branch menu colors now match the graph: local branches purple, remote branches blue (canopy.branchColors.local / .remote defaults swapped).
 - Commit graph: click any commit, or the uncommitted changes row, to list its changed files inline beneath it; click a file to open its diff (merges diff against their first parent, renames diff against the old path). Commit actions moved to right-click.

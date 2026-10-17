@@ -115,6 +115,12 @@ export class GitOps {
       deleteBranch: one((r) => this.deleteBranch(r)),
       deleteRemoteBranch: one((r) => this.deleteRemoteBranch(r)),
       pruneMergedBranches: one((r) => this.pruneMerged(r)),
+      pruneRemoteBranches: many((rs) => this.forEachRepo(rs, 'Prune remote branches', (r) => this.pruneRemotes(r, rs.length === 1))),
+      pruneGoneBranches: one((r) => this.pruneLocal(r, { gone: true, merged: false })),
+      pruneAll: one((r) => this.pruneLocal(r, { gone: true, merged: true })),
+      pruneWorktrees: one(async (r) => {
+        if ((await this.exec(r, ['worktree', 'prune', '--verbose'], { title: 'Prune worktrees' })) !== undefined) void vscode.window.setStatusBarMessage(`$(check) ${r.name}: stale worktree records removed`, 4000);
+      }),
       setUpstream: one((r) => this.setUpstream(r)),
       merge: one((r) => this.merge(r, [])),
       mergeNoFf: one((r) => this.merge(r, ['--no-ff'])),
@@ -323,11 +329,87 @@ export class GitOps {
     }
   }
 
-  private async pruneMerged(r: Repo): Promise<void> {
+  /** Local branches merged into the upstream (or current branch), minus long-lived ones and the current branch. */
+  private async mergedBranches(r: Repo): Promise<{ base: string; names: string[] }> {
     const base = r.upstream ?? r.branch ?? 'HEAD';
     const out = await r.git(['branch', '--merged', base, '--format=%(refname:short)'], { readOnly: true });
     const keep = new Set(['main', 'master', 'develop', 'dev', 'trunk', r.branch ?? '']);
-    const merged = out.split('\n').map((s) => s.trim()).filter((b) => b && !keep.has(b));
+    return { base, names: out.split('\n').map((s) => s.trim()).filter((b) => b && !keep.has(b)) };
+  }
+
+  /** `git remote prune` on every remote: drops remote-tracking branches (origin/x) deleted on the server. */
+  private async pruneRemotes(r: Repo, report: boolean): Promise<boolean> {
+    if (!r.remotes.size) {
+      if (report) void vscode.window.showInformationMessage(`${r.name} has no remotes.`);
+      return true;
+    }
+    const pruned: string[] = [];
+    for (const remote of r.remotes.keys()) {
+      const out = await this.exec(r, ['remote', 'prune', remote], { title: `Prune ${remote}`, quiet: !report });
+      if (out === undefined) return false;
+      for (const m of out.matchAll(/\[pruned\]\s+(\S+)/g)) pruned.push(m[1]);
+    }
+    if (report) {
+      void vscode.window.showInformationMessage(
+        pruned.length
+          ? `${r.name}: removed ${pruned.length} remote branch${pruned.length === 1 ? '' : 'es'} deleted on the server: ${pruned.join(', ')}`
+          : `${r.name}: no remote branches to prune.`
+      );
+    }
+    return true;
+  }
+
+  /** Local branches whose upstream no longer exists (run after pruning remotes). */
+  private async goneBranches(r: Repo): Promise<string[]> {
+    const out = await r.git(['for-each-ref', '--format=%(refname:short)%09%(upstream:track)', 'refs/heads'], { readOnly: true });
+    return out
+      .split('\n')
+      .map((l) => l.split('\t'))
+      .filter(([name, track]) => name && track === '[gone]')
+      .map(([name]) => name);
+  }
+
+  /**
+   * Prunes remote-tracking branches, then offers local branches to delete: those whose remote branch
+   * is gone and/or those already merged. Unmerged ones need a second confirmation to force-delete.
+   */
+  private async pruneLocal(r: Repo, kinds: { gone: boolean; merged: boolean }): Promise<void> {
+    if (kinds.gone && !(await this.pruneRemotes(r, false))) return;
+    const gone = kinds.gone ? await this.goneBranches(r) : [];
+    const merged = kinds.merged ? await this.mergedBranches(r) : { base: '', names: [] };
+    const reasons = new Map<string, string[]>();
+    for (const b of gone) reasons.set(b, ['deleted on remote']);
+    for (const b of merged.names) reasons.set(b, [...(reasons.get(b) ?? []), `merged into ${merged.base}`]);
+    const current = r.branch && reasons.has(r.branch) ? r.branch : undefined;
+    if (current) reasons.delete(current);
+    const what = kinds.merged ? 'gone on the remote or merged' : 'whose remote branch was deleted';
+    const skipped = current ? ` The current branch ${current} qualifies too; switch away from it to delete it.` : '';
+    if (!reasons.size) return void vscode.window.showInformationMessage(`${r.name}: no local branches ${what}.${skipped}`);
+    const picks = await vscode.window.showQuickPick(
+      [...reasons].map(([label, why]) => ({ label, description: why.join(' · '), picked: true })),
+      { canPickMany: true, placeHolder: `${r.name}: local branches ${what}. Delete the checked ones.${skipped}` }
+    );
+    if (!picks?.length) return;
+    const unmerged: string[] = [];
+    for (const p of picks) {
+      if ((await this.exec(r, ['branch', '-d', p.label], { title: `Delete ${p.label}`, quiet: true })) === undefined) unmerged.push(p.label);
+    }
+    const deleted = picks.length - unmerged.length;
+    if (unmerged.length) {
+      const force = await this.confirm(
+        `${unmerged.length} branch${unmerged.length === 1 ? ' is' : 'es are'} not fully merged: ${unmerged.join(', ')}`,
+        'Branches squash- or rebase-merged on the server often look unmerged locally. Force-deleting loses any commits that are not on another branch.',
+        'Force Delete'
+      );
+      if (force) await this.exec(r, ['branch', '-D', ...unmerged], { title: `Force delete ${unmerged.length} branches` });
+      else if (deleted) void vscode.window.showInformationMessage(`${r.name}: deleted ${deleted} branch${deleted === 1 ? '' : 'es'}; kept ${unmerged.join(', ')}.`);
+      return;
+    }
+    void vscode.window.setStatusBarMessage(`$(check) ${r.name}: deleted ${deleted} branch${deleted === 1 ? '' : 'es'}`, 4000);
+  }
+
+  private async pruneMerged(r: Repo): Promise<void> {
+    const { base, names: merged } = await this.mergedBranches(r);
     if (!merged.length) return void vscode.window.showInformationMessage(`No merged branches to prune in ${r.name}.`);
     const picks = await vscode.window.showQuickPick(merged.map((b) => ({ label: b, picked: true })), { canPickMany: true, placeHolder: `Branches merged into ${base}: delete the checked ones` });
     if (!picks?.length) return;

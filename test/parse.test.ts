@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { changedPathCount, parseBranches, parseDecorations, parseLog, parseNameStatusZ, parseRemotes, parseStashes, parseStatusV2, parseWorktrees } from '../src/git/parse';
+import { changedPathCount, parseBranches, parseDecorations, parseLog, parseNameStatusZ, parseNumstatZ, parseRemotes, parseStashes, parseStatusV2, parseWorktrees, withLineStats } from '../src/git/parse';
 
 test('parseStatusV2: branch header, ahead/behind, all entry kinds', () => {
   const out = [
@@ -86,4 +86,14 @@ test('parseNameStatusZ: plain, renamed and copied entries', () => {
     { status: 'A', path: 'added.txt' }
   ]);
   assert.deepEqual(parseNameStatusZ(''), []);
+});
+
+test('parseNumstatZ: counts, renames, binary files; withLineStats attaches them', () => {
+  const out = ['3\t1\tsrc/a b.ts', '1\t0\t', 'old.ts', 'new.ts', '-\t-\tlogo.png', ''].join('\0');
+  const stats = parseNumstatZ(out);
+  assert.deepEqual([...stats], [['src/a b.ts', [3, 1]], ['new.ts', [1, 0]]]);
+  assert.deepEqual(withLineStats([{ status: 'M', path: 'src/a b.ts' }, { status: 'A', path: 'logo.png' }], stats), [
+    { status: 'M', path: 'src/a b.ts', added: 3, deleted: 1 },
+    { status: 'A', path: 'logo.png' }
+  ]);
 });

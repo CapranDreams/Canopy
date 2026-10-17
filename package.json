@@ -2,7 +2,7 @@
   "name": "canopy",
   "displayName": "CANOPY",
   "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
-  "version": "0.3.2",
+  "version": "0.3.6",
   "publisher": "MyriadArtificia",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -30,6 +30,48 @@
     "onUri"
   ],
   "contributes": {
+    "colors": [
+      {
+        "id": "canopy.pipelineFailedForeground",
+        "description": "CANOPY Repositories: badge and name color of a repository whose pipeline failed (highest priority).",
+        "defaults": {
+          "dark": "charts.red",
+          "light": "charts.red",
+          "highContrast": "charts.red",
+          "highContrastLight": "charts.red"
+        }
+      },
+      {
+        "id": "canopy.aheadForeground",
+        "description": "CANOPY Repositories: badge and name color of a repository with commits to push.",
+        "defaults": {
+          "dark": "charts.blue",
+          "light": "charts.blue",
+          "highContrast": "charts.blue",
+          "highContrastLight": "charts.blue"
+        }
+      },
+      {
+        "id": "canopy.behindForeground",
+        "description": "CANOPY Repositories: badge and name color of a repository with commits to pull.",
+        "defaults": {
+          "dark": "charts.green",
+          "light": "charts.green",
+          "highContrast": "charts.green",
+          "highContrastLight": "charts.green"
+        }
+      },
+      {
+        "id": "canopy.changesForeground",
+        "description": "CANOPY Repositories: badge and name color of a repository with uncommitted changes.",
+        "defaults": {
+          "dark": "charts.yellow",
+          "light": "charts.yellow",
+          "highContrast": "charts.yellow",
+          "highContrastLight": "charts.yellow"
+        }
+      }
+    ],
     "viewsContainers": {
       "activitybar": [
         {
@@ -279,6 +321,26 @@
       {
         "command": "canopy.pruneMergedBranches",
         "title": "Prune Merged Branches…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pruneRemoteBranches",
+        "title": "Prune Remote Branches Deleted on Server",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pruneGoneBranches",
+        "title": "Delete Local Branches Gone on Remote…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pruneAll",
+        "title": "Clean Up Branches (Prune Remotes, Delete Gone and Merged Locals)…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pruneWorktrees",
+        "title": "Prune Stale Worktrees",
         "category": "CANOPY"
       },
       {
@@ -1120,7 +1182,19 @@
         },
         {
           "command": "canopy.pruneMergedBranches",
-          "group": "1_branch@8"
+          "group": "2_prune@1"
+        },
+        {
+          "command": "canopy.pruneGoneBranches",
+          "group": "2_prune@2"
+        },
+        {
+          "command": "canopy.pruneRemoteBranches",
+          "group": "2_prune@3"
+        },
+        {
+          "command": "canopy.pruneAll",
+          "group": "2_prune@4"
         }
       ],
       "canopy.sub.mergeRebase": [
@@ -1502,6 +1576,19 @@
           "type": "boolean",
           "default": true,
           "markdownDescription": "Save a stash before discarding changes so a discard can be undone."
+        },
+        "canopy.diff.placement": {
+          "type": "string",
+          "enum": [
+            "reuseGroup",
+            "column2"
+          ],
+          "enumDescriptions": [
+            "Open the first diff beside the details panel, then keep using that editor group while it is open.",
+            "Always open diffs in the second editor column."
+          ],
+          "default": "reuseGroup",
+          "markdownDescription": "Where file diffs from the details panel open. Each diff opens as a preview tab, so the next one replaces it."
         },
         "canopy.graph.maxCommits": {
           "type": "number",
