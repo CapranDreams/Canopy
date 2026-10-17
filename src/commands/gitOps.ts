@@ -21,6 +21,8 @@ export interface ExecOptions {
   /** Don't show an error message on failure (caller handles it). */
   quiet?: boolean;
   timeoutMs?: number;
+  /** When git exits with an error, return true if the work was in fact done (the failure was only git's cleanup). */
+  succeededAnyway?: () => Promise<boolean>;
 }
 
 type RepoHandler = (repos: Repo[], arg?: unknown) => Promise<unknown>;
@@ -45,6 +47,10 @@ export class GitOps {
           );
       return out;
     } catch (e) {
+      if (opts.succeededAnyway && (await opts.succeededAnyway().catch(() => false))) {
+        this.log.info(`${repo.name}: ${title}: git reported an error, but the change was made; treating it as done.`);
+        return '';
+      }
       if (!opts.quiet) await this.reportError(repo, e, title);
       return undefined;
     } finally {
@@ -678,7 +684,11 @@ export class GitOps {
     const spec = files.map((f) => f.path);
     if (safety) {
       const msg = `CANOPY safety stash: discarded ${files.length === 1 ? spec[0] : files.length + ' files'}`;
-      return (await this.exec(r, ['stash', 'push', '--keep-index', '--include-untracked', '-m', msg, '--', ...spec], { title: 'Discard' })) !== undefined;
+      // With --keep-index, --include-untracked and an untracked path, git saves the stash and removes the file but
+      // then exits 1 ("pathspec ... did not match"). A new stash entry means the discard worked.
+      const topStash = () => r.git(['rev-parse', '-q', '--verify', 'refs/stash'], { readOnly: true }).then((s) => s.trim(), () => '');
+      const before = await topStash();
+      return (await this.exec(r, ['stash', 'push', '--keep-index', '--include-untracked', '-m', msg, '--', ...spec], { title: 'Discard', succeededAnyway: async () => (await topStash()) !== before })) !== undefined;
     }
     const tracked = files.filter((f) => f.status !== 'U').map((f) => f.path);
     const untracked = files.filter((f) => f.status === 'U').map((f) => f.path);

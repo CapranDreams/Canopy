@@ -167,6 +167,20 @@ export async function run(): Promise<void> {
     assert.equal(fs.readFileSync(path.join(alpha.root, 'readme.md'), 'utf8').replace(/\r\n/g, '\n'), '# alpha\n');
   });
 
+  await step('discarding an untracked file with the safety stash succeeds without a git error', async () => {
+    const alpha = byName('alpha')!;
+    const file = path.join(alpha.root, 'scratch-settings.json');
+    fs.writeFileSync(file, '{}\n');
+    await manager.refresh(alpha);
+    await waitFor('untracked file listed', () => alpha.unstaged.some((f) => f.path === 'scratch-settings.json'));
+    const stashCount = async () => (await alpha.git(['stash', 'list'])).split('\n').filter(Boolean).length;
+    const before = await stashCount();
+    assert.equal(await ops.discard(alpha, ['scratch-settings.json'], true), true, 'discard reports success');
+    await waitFor('untracked file discarded', () => !alpha.unstaged.some((f) => f.path === 'scratch-settings.json'));
+    assert.equal(await stashCount(), before + 1, 'one new stash');
+    assert.equal(fs.existsSync(file), false);
+  });
+
   await step('pull fast-forwards', async () => {
     const alpha = byName('alpha')!;
     await vscode.commands.executeCommand('canopy.pullFfOnly', alpha);

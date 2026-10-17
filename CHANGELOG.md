@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.3.9
+- Fixed Discard on an untracked file reporting "pathspec ... did not match any file(s) known to git" even though the file was stashed and removed. Git exits with an error after a successful safety stash in that case; CANOPY now checks that the stash was created and treats the discard as done.
+
 ## 0.3.8
 - Profiles is now a tab in the details panel next to Graph and Stats (it still opens as its own editor tab from the Profiles commands; both show the same profile being edited).
 - Pull menu: Pull (Including Submodules) pulls and then initializes and updates every submodule, recursively. It works the same whether or not the repository was cloned with --recursive.
