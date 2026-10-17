@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.4.1
+- Repository rows in the sidebar now show progress: while a pull, push, sync, fetch, publish or submodule update is running, the row's icon spins and its text starts with what it is doing ("Pulling…", "Pushing…", "Fetching…", "Updating submodules…"). This works whichever way the operation was started: the row buttons, the details panel, the command palette or a folder action.
+
 ## 0.4.0
 - Submodules: a repository that is a Git submodule of another tracked repository now appears nested under its parent in the Repositories view instead of as a separate entry. Submodules have their own icon in a teal color (change it with workbench.colorCustomizations: canopy.submoduleForeground), keep their own branch, badge and buttons, and show a yellow ≠ badge when checked out at a different commit than the parent records. Grouping by status keeps the list flat (with the same icon). A parent stays visible under filters when one of its submodules matches, and the details panel's breadcrumb says which repository a submodule belongs to.
 - New Switch Branch button (branch icon) first among a repository's hover buttons: opens the branch picker for that repository or submodule. Also available as the CANOPY: Switch Branch… command.

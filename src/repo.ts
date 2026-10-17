@@ -16,6 +16,8 @@ export class Repo {
   error: string | null = null;
   loaded = false;
   fetching = false;
+  /** Network operations running right now (innermost last), e.g. "Pushing"; shown as a spinner in the tree. */
+  readonly activity: string[] = [];
   lastFetch = 0;
   /** Working tree of the repository this one is a submodule of, if any. */
   superRoot: string | undefined;

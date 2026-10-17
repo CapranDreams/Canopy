@@ -241,6 +241,18 @@ export class RepoManager implements vscode.Disposable {
     }
   }
 
+  /** Marks a repo busy with `label` (e.g. "Pushing") until endActivity; the tree shows a spinner meanwhile. */
+  beginActivity(repo: Repo, label: string): void {
+    repo.activity.push(label);
+    this._onDidChange.fire(repo);
+  }
+
+  endActivity(repo: Repo, label: string): void {
+    const i = repo.activity.lastIndexOf(label);
+    if (i >= 0) repo.activity.splice(i, 1);
+    this._onDidChange.fire(repo);
+  }
+
   async fetch(repo: Repo, opts: { prune?: boolean; allRemotes?: boolean; silent?: boolean } = {}): Promise<boolean> {
     if (repo.fetching || !repo.remotes.size) return true;
     const prune = opts.prune ?? vscode.workspace.getConfiguration('canopy').get<boolean>('fetchPrune', false);

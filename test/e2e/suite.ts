@@ -313,6 +313,27 @@ export async function run(): Promise<void> {
     await waitFor('beta back on feature/x', () => beta.branch === 'feature/x');
   });
 
+  await step('tree rows spin and say what they are doing while a pull or push runs', async () => {
+    const alpha = byName('alpha')!;
+    const node = { kind: 'repo' as const, repo: alpha, parent: '__unsorted' };
+    const idle = tree.getTreeItem(node);
+    assert.notEqual((idle.iconPath as vscode.ThemeIcon).id, 'sync~spin');
+    assert.ok(!String(idle.description).includes('…'), 'no activity text when idle');
+
+    const pending = ops.exec(alpha, ['pull'], { quiet: true });
+    assert.deepEqual(alpha.activity, ['Pulling'], 'marked busy as soon as the command starts');
+    const busy = tree.getTreeItem(node);
+    assert.equal((busy.iconPath as vscode.ThemeIcon).id, 'sync~spin');
+    assert.match(String(busy.description), /^Pulling…/);
+    await pending;
+    assert.deepEqual(alpha.activity, [], 'cleared when it finishes');
+    assert.notEqual((tree.getTreeItem(node).iconPath as vscode.ThemeIcon).id, 'sync~spin');
+
+    // A failing command must clear it too.
+    await ops.exec(alpha, ['push', 'no-such-remote', 'main'], { quiet: true });
+    assert.deepEqual(alpha.activity, []);
+  });
+
   await step('submodules nest under their parent with their own icon, and the moved marker appears', async () => {
     const sh = (cwd: string, ...args: string[]) =>
       execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd, stdio: 'pipe' }).toString();

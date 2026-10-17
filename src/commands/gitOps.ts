@@ -12,6 +12,9 @@ import { askRefName, listBranches, listStashes, listTags, listWorktrees, pickBra
 import { validateCloneUrl } from '../util/remote';
 import { mapLimit } from '../util/limit';
 
+/** Git commands that talk to a remote, and how the tree describes them while they run. */
+const ACTIVITY: Record<string, string> = { pull: 'Pulling', push: 'Pushing', submodule: 'Updating submodules' };
+
 export interface ExecOptions {
   title?: string;
   input?: string;
@@ -39,6 +42,8 @@ export class GitOps {
   async exec(repo: Repo, args: string[], opts: ExecOptions = {}): Promise<string | undefined> {
     const title = opts.title ?? `git ${args[0]}`;
     const run = () => repo.git(args, { input: opts.input, env: opts.env, priority: true, timeoutMs: opts.timeoutMs ?? 10 * 60_000 });
+    const activity = ACTIVITY[args[0]];
+    if (activity) this.manager.beginActivity(repo, activity);
     try {
       const out = opts.notify
         ? await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `${repo.name}: ${title}…` }, run)
@@ -54,6 +59,7 @@ export class GitOps {
       if (!opts.quiet) await this.reportError(repo, e, title);
       return undefined;
     } finally {
+      if (activity) this.manager.endActivity(repo, activity);
       await this.manager.refresh(repo);
     }
   }
