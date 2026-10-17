@@ -1,0 +1,1727 @@
+{
+  "name": "canopy",
+  "displayName": "CANOPY",
+  "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
+  "version": "0.3.1",
+  "publisher": "MyriadArtificia",
+  "license": "MIT",
+  "icon": "media/icon.png",
+  "engines": {
+    "vscode": "^1.95.0"
+  },
+  "categories": [
+    "SCM Providers",
+    "Visualization",
+    "Other"
+  ],
+  "keywords": [
+    "git",
+    "gitlab",
+    "github",
+    "multi-repo",
+    "repositories",
+    "pull request",
+    "merge request",
+    "pipeline"
+  ],
+  "main": "./out/src/extension.js",
+  "activationEvents": [
+    "onStartupFinished",
+    "onUri"
+  ],
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "canopy",
+          "title": "CANOPY",
+          "icon": "media/canopy.svg"
+        }
+      ]
+    },
+    "views": {
+      "canopy": [
+        {
+          "id": "canopy.repos",
+          "name": "Repositories",
+          "icon": "media/canopy.svg",
+          "contextualTitle": "CANOPY"
+        }
+      ]
+    },
+    "viewsWelcome": [
+      {
+        "view": "canopy.repos",
+        "contents": "No Git repositories found yet.\n[Add Repository](command:canopy.addRepository)\n[Clone Repository](command:canopy.cloneRepository)\n[Clone from GitLab Group](command:canopy.gitlab.cloneFromGroup)\n[Clone from GitHub Organization](command:canopy.github.cloneFromGroup)\n[Import Profile](command:canopy.importProfile)\nCANOPY scans your workspace folders and the folders in the `canopy.scanRoots` setting. [Get Started](command:canopy.getStarted)"
+      }
+    ],
+    "commands": [
+      {
+        "command": "canopy.fetchAll",
+        "title": "Fetch All",
+        "category": "CANOPY",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "canopy.refresh",
+        "title": "Refresh",
+        "category": "CANOPY",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "canopy.filter",
+        "title": "Filter…",
+        "category": "CANOPY",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "canopy.clearFilter",
+        "title": "Clear Filter",
+        "category": "CANOPY",
+        "icon": "$(filter-filled)"
+      },
+      {
+        "command": "canopy.sortBy",
+        "title": "Sort By…",
+        "category": "CANOPY",
+        "icon": "$(list-ordered)"
+      },
+      {
+        "command": "canopy.toggleGroupBy",
+        "title": "Toggle Group by Status / Folders",
+        "category": "CANOPY",
+        "icon": "$(group-by-ref-type)"
+      },
+      {
+        "command": "canopy.editLayout",
+        "title": "Edit Layout",
+        "category": "CANOPY",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "canopy.doneEditing",
+        "title": "Done Editing Layout",
+        "category": "CANOPY",
+        "icon": "$(check)"
+      },
+      {
+        "command": "canopy.newFolder",
+        "title": "New Folder…",
+        "category": "CANOPY",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "canopy.newSmartFolder",
+        "title": "New Smart Folder…",
+        "category": "CANOPY",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "canopy.addRepository",
+        "title": "Add Repository…",
+        "category": "CANOPY",
+        "icon": "$(add)"
+      },
+      {
+        "command": "canopy.cloneRepository",
+        "title": "Clone Repository…",
+        "category": "CANOPY",
+        "icon": "$(repo-clone)"
+      },
+      {
+        "command": "canopy.scanForRepositories",
+        "title": "Rescan for Repositories",
+        "category": "CANOPY",
+        "icon": "$(search)"
+      },
+      {
+        "command": "canopy.openProfiles",
+        "title": "Profiles",
+        "category": "CANOPY",
+        "icon": "$(layers)"
+      },
+      {
+        "command": "canopy.importProfile",
+        "title": "Import Profile…",
+        "category": "CANOPY",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "canopy.switchProfile",
+        "title": "Switch Profile…",
+        "category": "CANOPY",
+        "icon": "$(layers)"
+      },
+      {
+        "command": "canopy.showAllRepositories",
+        "title": "Show All Repositories",
+        "category": "CANOPY",
+        "icon": "$(eye)"
+      },
+      {
+        "command": "canopy.hideCleanRepositories",
+        "title": "Hide Clean Repositories",
+        "category": "CANOPY",
+        "icon": "$(eye-closed)"
+      },
+      {
+        "command": "canopy.goToRepository",
+        "title": "Go to Repository…",
+        "category": "CANOPY",
+        "icon": "$(go-to-file)"
+      },
+      {
+        "command": "canopy.openDetails",
+        "title": "Open Details",
+        "category": "CANOPY",
+        "icon": "$(preview)"
+      },
+      {
+        "command": "canopy.sync",
+        "title": "Sync",
+        "category": "CANOPY",
+        "icon": "$(sync)"
+      },
+      {
+        "command": "canopy.pull",
+        "title": "Pull",
+        "category": "CANOPY",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "canopy.pullRebase",
+        "title": "Pull (Rebase)",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pullFfOnly",
+        "title": "Pull (Fast-Forward Only)",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pullFrom",
+        "title": "Pull from…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.push",
+        "title": "Push",
+        "category": "CANOPY",
+        "icon": "$(arrow-up)"
+      },
+      {
+        "command": "canopy.pushTo",
+        "title": "Push to…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.publishBranch",
+        "title": "Publish Branch",
+        "category": "CANOPY",
+        "icon": "$(cloud-upload)"
+      },
+      {
+        "command": "canopy.pushTags",
+        "title": "Push Tags",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.forcePushWithLease",
+        "title": "Force Push (With Lease)…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.fetch",
+        "title": "Fetch",
+        "category": "CANOPY",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "canopy.fetchPrune",
+        "title": "Fetch (Prune)",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.fetchAllRemotes",
+        "title": "Fetch from All Remotes",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.checkout",
+        "title": "Checkout to…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.createBranch",
+        "title": "Create Branch…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.createBranchFrom",
+        "title": "Create Branch From…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.renameBranch",
+        "title": "Rename Branch…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.deleteBranch",
+        "title": "Delete Branch…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.deleteRemoteBranch",
+        "title": "Delete Remote Branch…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pruneMergedBranches",
+        "title": "Prune Merged Branches…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.setUpstream",
+        "title": "Set Upstream…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.merge",
+        "title": "Merge Branch…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.mergeNoFf",
+        "title": "Merge (No Fast-Forward)…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.mergeSquash",
+        "title": "Squash Merge…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.rebaseOntoUpstream",
+        "title": "Rebase onto Upstream",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.rebaseOnto",
+        "title": "Rebase onto…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.rebaseInteractive",
+        "title": "Interactive Rebase…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.continueOperation",
+        "title": "Continue Merge / Rebase / Cherry-Pick",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.skipOperation",
+        "title": "Skip Commit (Rebase)",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.abortOperation",
+        "title": "Abort Merge / Rebase / Cherry-Pick…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.openConflicts",
+        "title": "Open Conflicted Files",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.openMergeTool",
+        "title": "Open External Merge Tool",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.acceptAllCurrent",
+        "title": "Accept All Current Changes…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.acceptAllIncoming",
+        "title": "Accept All Incoming Changes…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stash",
+        "title": "Stash",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashIncludeUntracked",
+        "title": "Stash (Include Untracked)",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashStaged",
+        "title": "Stash Staged",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashApplyLatest",
+        "title": "Apply Latest Stash",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashPopLatest",
+        "title": "Pop Latest Stash",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashApply",
+        "title": "Apply Stash…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashPop",
+        "title": "Pop Stash…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashDrop",
+        "title": "Drop Stash…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashClear",
+        "title": "Drop All Stashes…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.commit",
+        "title": "Commit Staged…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.commitAll",
+        "title": "Commit All…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.commitAmend",
+        "title": "Amend Last Commit…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.undoLastCommit",
+        "title": "Undo Last Commit",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stageAll",
+        "title": "Stage All Changes",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.unstageAll",
+        "title": "Unstage All Changes",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.discardAll",
+        "title": "Discard All Changes…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.cleanUntracked",
+        "title": "Clean Untracked Files…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.cherryPick",
+        "title": "Cherry-Pick Commit…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.revertCommit",
+        "title": "Revert Commit…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.resetTo",
+        "title": "Reset Current Branch to…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.createTag",
+        "title": "Create Tag…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.deleteTag",
+        "title": "Delete Tag…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.addRemote",
+        "title": "Add Remote…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.removeRemote",
+        "title": "Remove Remote…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.worktreeAdd",
+        "title": "Create Worktree…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.worktreeOpen",
+        "title": "Open Worktree…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.worktreeRemove",
+        "title": "Remove Worktree…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.submoduleUpdate",
+        "title": "Update Submodules",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.openInTerminal",
+        "title": "Open in Terminal",
+        "category": "CANOPY",
+        "icon": "$(terminal)"
+      },
+      {
+        "command": "canopy.revealInOS",
+        "title": "Reveal in File Explorer",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.openInNewWindow",
+        "title": "Open in New Window",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.addToWorkspace",
+        "title": "Add to Workspace",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.openOnRemote",
+        "title": "Open on Remote",
+        "category": "CANOPY",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "canopy.copyPath",
+        "title": "Copy Path",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.showOutput",
+        "title": "Show Git Output",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.moveToFolder",
+        "title": "Move to Folder…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.removeFromFolder",
+        "title": "Remove from Folder",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.hideRepository",
+        "title": "Hide from CANOPY",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.renameFolder",
+        "title": "Rename Folder…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.deleteFolder",
+        "title": "Delete Folder",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.newSubfolder",
+        "title": "New Subfolder…",
+        "category": "CANOPY",
+        "icon": "$(new-folder)"
+      },
+      {
+        "command": "canopy.editSmartFolder",
+        "title": "Edit Smart Folder Query…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.fetchFolder",
+        "title": "Fetch All in Folder",
+        "category": "CANOPY",
+        "icon": "$(cloud-download)"
+      },
+      {
+        "command": "canopy.pullFolder",
+        "title": "Pull All in Folder (Fast-Forward Only)",
+        "category": "CANOPY",
+        "icon": "$(arrow-down)"
+      },
+      {
+        "command": "canopy.gitlab.connect",
+        "title": "Connect GitLab…",
+        "category": "CANOPY",
+        "icon": "$(plug)"
+      },
+      {
+        "command": "canopy.gitlab.disconnect",
+        "title": "Disconnect GitLab…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.gitlab.cloneFromGroup",
+        "title": "Clone from GitLab Group…",
+        "category": "CANOPY",
+        "icon": "$(repo-clone)"
+      },
+      {
+        "command": "canopy.gitlab.profileFromGroup",
+        "title": "Profile from GitLab Group…",
+        "category": "CANOPY",
+        "icon": "$(layers)"
+      },
+      {
+        "command": "canopy.getStarted",
+        "title": "Get Started",
+        "category": "CANOPY",
+        "icon": "$(book)"
+      },
+      {
+        "command": "canopy.forge.createRequest",
+        "title": "Create Merge / Pull Request…",
+        "category": "CANOPY",
+        "icon": "$(git-pull-request-create)"
+      },
+      {
+        "command": "canopy.forge.openRequest",
+        "title": "Open Merge / Pull Request",
+        "category": "CANOPY",
+        "icon": "$(git-pull-request)"
+      },
+      {
+        "command": "canopy.forge.openPipeline",
+        "title": "Open Pipeline / Checks",
+        "category": "CANOPY",
+        "icon": "$(rocket)"
+      },
+      {
+        "command": "canopy.forge.retryPipeline",
+        "title": "Retry Pipeline / Failed Checks",
+        "category": "CANOPY",
+        "icon": "$(debug-restart)"
+      },
+      {
+        "command": "canopy.forge.openProject",
+        "title": "Open on GitLab / GitHub",
+        "category": "CANOPY",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "canopy.forge.refresh",
+        "title": "Refresh GitLab / GitHub Status",
+        "category": "CANOPY",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "canopy.github.connect",
+        "title": "Sign in to GitHub…",
+        "category": "CANOPY",
+        "icon": "$(github)"
+      },
+      {
+        "command": "canopy.github.disconnect",
+        "title": "Stop Using GitHub Account…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.github.cloneFromGroup",
+        "title": "Clone from GitHub Organization…",
+        "category": "CANOPY",
+        "icon": "$(repo-clone)"
+      },
+      {
+        "command": "canopy.github.profileFromGroup",
+        "title": "Profile from GitHub Organization…",
+        "category": "CANOPY",
+        "icon": "$(layers)"
+      }
+    ],
+    "submenus": [
+      {
+        "id": "canopy.sub.pullPush",
+        "label": "Pull, Push & Fetch"
+      },
+      {
+        "id": "canopy.sub.branch",
+        "label": "Branch"
+      },
+      {
+        "id": "canopy.sub.mergeRebase",
+        "label": "Merge & Rebase"
+      },
+      {
+        "id": "canopy.sub.stash",
+        "label": "Stash"
+      },
+      {
+        "id": "canopy.sub.changes",
+        "label": "Commit & Changes"
+      },
+      {
+        "id": "canopy.sub.history",
+        "label": "History"
+      },
+      {
+        "id": "canopy.sub.more",
+        "label": "Tags, Remotes & Worktrees"
+      },
+      {
+        "id": "canopy.sub.forge",
+        "label": "GitLab & GitHub"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "canopy.fetchAll",
+          "group": "navigation@1",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.filter",
+          "group": "navigation@2",
+          "when": "view == canopy.repos && !canopy.filtered"
+        },
+        {
+          "command": "canopy.clearFilter",
+          "group": "navigation@2",
+          "when": "view == canopy.repos && canopy.filtered"
+        },
+        {
+          "command": "canopy.editLayout",
+          "group": "navigation@3",
+          "when": "view == canopy.repos && !canopy.editMode"
+        },
+        {
+          "command": "canopy.doneEditing",
+          "group": "navigation@3",
+          "when": "view == canopy.repos && canopy.editMode"
+        },
+        {
+          "command": "canopy.newFolder",
+          "group": "navigation@4",
+          "when": "view == canopy.repos && canopy.editMode"
+        },
+        {
+          "command": "canopy.openProfiles",
+          "group": "navigation@5",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.sortBy",
+          "group": "1_view@1",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.toggleGroupBy",
+          "group": "1_view@2",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.goToRepository",
+          "group": "1_view@3",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.refresh",
+          "group": "1_view@4",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.newFolder",
+          "group": "2_layout@1",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.newSmartFolder",
+          "group": "2_layout@2",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.showAllRepositories",
+          "group": "2_layout@3",
+          "when": "view == canopy.repos && canopy.editMode"
+        },
+        {
+          "command": "canopy.hideCleanRepositories",
+          "group": "2_layout@4",
+          "when": "view == canopy.repos && canopy.editMode"
+        },
+        {
+          "command": "canopy.addRepository",
+          "group": "3_repos@1",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.cloneRepository",
+          "group": "3_repos@2",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.scanForRepositories",
+          "group": "3_repos@3",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.switchProfile",
+          "group": "4_profiles@1",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.importProfile",
+          "group": "4_profiles@2",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.getStarted",
+          "group": "9_help@1",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.gitlab.connect",
+          "group": "5_forge@1",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.github.connect",
+          "group": "5_forge@2",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.gitlab.cloneFromGroup",
+          "group": "5_forge@3",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.github.cloneFromGroup",
+          "group": "5_forge@4",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.gitlab.profileFromGroup",
+          "group": "5_forge@5",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.github.profileFromGroup",
+          "group": "5_forge@6",
+          "when": "view == canopy.repos"
+        },
+        {
+          "command": "canopy.forge.refresh",
+          "group": "5_forge@7",
+          "when": "view == canopy.repos && (canopy.gitlab.connected || canopy.github.connected)"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "canopy.pull",
+          "group": "inline@1",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:behind/"
+        },
+        {
+          "command": "canopy.push",
+          "group": "inline@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:ahead/"
+        },
+        {
+          "command": "canopy.publishBranch",
+          "group": "inline@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:unpublished/"
+        },
+        {
+          "command": "canopy.openDetails",
+          "group": "inline@3",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.fetchFolder",
+          "group": "inline@1",
+          "when": "view == canopy.repos && viewItem =~ /^(folder|group)/"
+        },
+        {
+          "command": "canopy.openDetails",
+          "group": "1_open@1",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.openInTerminal",
+          "group": "1_open@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.revealInOS",
+          "group": "1_open@3",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.openInNewWindow",
+          "group": "1_open@4",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.addToWorkspace",
+          "group": "1_open@5",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.openOnRemote",
+          "group": "1_open@6",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.copyPath",
+          "group": "1_open@7",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.sync",
+          "group": "2_sync@1",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.fetch",
+          "group": "2_sync@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.pull",
+          "group": "2_sync@3",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.push",
+          "group": "2_sync@4",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "submenu": "canopy.sub.pullPush",
+          "group": "3_git@1",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "submenu": "canopy.sub.branch",
+          "group": "3_git@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "submenu": "canopy.sub.mergeRebase",
+          "group": "3_git@3",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "submenu": "canopy.sub.stash",
+          "group": "3_git@4",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "submenu": "canopy.sub.changes",
+          "group": "3_git@5",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "submenu": "canopy.sub.history",
+          "group": "3_git@6",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "submenu": "canopy.sub.more",
+          "group": "3_git@7",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.continueOperation",
+          "group": "4_operation@1",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:operation/"
+        },
+        {
+          "command": "canopy.abortOperation",
+          "group": "4_operation@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:operation/"
+        },
+        {
+          "command": "canopy.openConflicts",
+          "group": "4_operation@3",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:operation/"
+        },
+        {
+          "command": "canopy.moveToFolder",
+          "group": "8_layout@1",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.removeFromFolder",
+          "group": "8_layout@2",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.hideRepository",
+          "group": "8_layout@3",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        },
+        {
+          "command": "canopy.fetchFolder",
+          "group": "1_sync@1",
+          "when": "view == canopy.repos && viewItem =~ /^(folder|group)/"
+        },
+        {
+          "command": "canopy.pullFolder",
+          "group": "1_sync@2",
+          "when": "view == canopy.repos && viewItem =~ /^(folder|group)/"
+        },
+        {
+          "command": "canopy.newSubfolder",
+          "group": "2_folder@1",
+          "when": "view == canopy.repos && viewItem =~ /^folder:manual/"
+        },
+        {
+          "command": "canopy.renameFolder",
+          "group": "2_folder@2",
+          "when": "view == canopy.repos && viewItem =~ /^folder:manual/"
+        },
+        {
+          "command": "canopy.deleteFolder",
+          "group": "2_folder@3",
+          "when": "view == canopy.repos && viewItem =~ /^folder:manual/"
+        },
+        {
+          "command": "canopy.editSmartFolder",
+          "group": "2_folder@1",
+          "when": "view == canopy.repos && viewItem =~ /^folder:smart/"
+        },
+        {
+          "command": "canopy.renameFolder",
+          "group": "2_folder@2",
+          "when": "view == canopy.repos && viewItem =~ /^folder:smart/"
+        },
+        {
+          "command": "canopy.deleteFolder",
+          "group": "2_folder@3",
+          "when": "view == canopy.repos && viewItem =~ /^folder:smart/"
+        },
+        {
+          "command": "canopy.forge.openRequest",
+          "group": "inline@4",
+          "when": "view == canopy.repos && viewItem =~ /^repo.*:mr/"
+        },
+        {
+          "submenu": "canopy.sub.forge",
+          "group": "3_git@8",
+          "when": "view == canopy.repos && viewItem =~ /^repo/"
+        }
+      ],
+      "canopy.sub.pullPush": [
+        {
+          "command": "canopy.pull",
+          "group": "1_pull@1"
+        },
+        {
+          "command": "canopy.pullRebase",
+          "group": "1_pull@2"
+        },
+        {
+          "command": "canopy.pullFfOnly",
+          "group": "1_pull@3"
+        },
+        {
+          "command": "canopy.pullFrom",
+          "group": "1_pull@4"
+        },
+        {
+          "command": "canopy.push",
+          "group": "2_push@1"
+        },
+        {
+          "command": "canopy.pushTo",
+          "group": "2_push@2"
+        },
+        {
+          "command": "canopy.publishBranch",
+          "group": "2_push@3"
+        },
+        {
+          "command": "canopy.pushTags",
+          "group": "2_push@4"
+        },
+        {
+          "command": "canopy.forcePushWithLease",
+          "group": "2_push@5"
+        },
+        {
+          "command": "canopy.fetch",
+          "group": "3_fetch@1"
+        },
+        {
+          "command": "canopy.fetchPrune",
+          "group": "3_fetch@2"
+        },
+        {
+          "command": "canopy.fetchAllRemotes",
+          "group": "3_fetch@3"
+        }
+      ],
+      "canopy.sub.branch": [
+        {
+          "command": "canopy.checkout",
+          "group": "1_branch@1"
+        },
+        {
+          "command": "canopy.createBranch",
+          "group": "1_branch@2"
+        },
+        {
+          "command": "canopy.createBranchFrom",
+          "group": "1_branch@3"
+        },
+        {
+          "command": "canopy.renameBranch",
+          "group": "1_branch@4"
+        },
+        {
+          "command": "canopy.setUpstream",
+          "group": "1_branch@5"
+        },
+        {
+          "command": "canopy.deleteBranch",
+          "group": "1_branch@6"
+        },
+        {
+          "command": "canopy.deleteRemoteBranch",
+          "group": "1_branch@7"
+        },
+        {
+          "command": "canopy.pruneMergedBranches",
+          "group": "1_branch@8"
+        }
+      ],
+      "canopy.sub.mergeRebase": [
+        {
+          "command": "canopy.merge",
+          "group": "1_merge@1"
+        },
+        {
+          "command": "canopy.mergeNoFf",
+          "group": "1_merge@2"
+        },
+        {
+          "command": "canopy.mergeSquash",
+          "group": "1_merge@3"
+        },
+        {
+          "command": "canopy.rebaseOntoUpstream",
+          "group": "2_rebase@1"
+        },
+        {
+          "command": "canopy.rebaseOnto",
+          "group": "2_rebase@2"
+        },
+        {
+          "command": "canopy.rebaseInteractive",
+          "group": "2_rebase@3"
+        },
+        {
+          "command": "canopy.continueOperation",
+          "group": "3_operation@1"
+        },
+        {
+          "command": "canopy.skipOperation",
+          "group": "3_operation@2"
+        },
+        {
+          "command": "canopy.abortOperation",
+          "group": "3_operation@3"
+        },
+        {
+          "command": "canopy.openConflicts",
+          "group": "4_tools@1"
+        },
+        {
+          "command": "canopy.openMergeTool",
+          "group": "4_tools@2"
+        },
+        {
+          "command": "canopy.acceptAllCurrent",
+          "group": "4_tools@3"
+        },
+        {
+          "command": "canopy.acceptAllIncoming",
+          "group": "4_tools@4"
+        }
+      ],
+      "canopy.sub.stash": [
+        {
+          "command": "canopy.stash",
+          "group": "1_save@1"
+        },
+        {
+          "command": "canopy.stashIncludeUntracked",
+          "group": "1_save@2"
+        },
+        {
+          "command": "canopy.stashStaged",
+          "group": "1_save@3"
+        },
+        {
+          "command": "canopy.stashApplyLatest",
+          "group": "2_apply@1"
+        },
+        {
+          "command": "canopy.stashPopLatest",
+          "group": "2_apply@2"
+        },
+        {
+          "command": "canopy.stashApply",
+          "group": "2_apply@3"
+        },
+        {
+          "command": "canopy.stashPop",
+          "group": "2_apply@4"
+        },
+        {
+          "command": "canopy.stashDrop",
+          "group": "3_drop@1"
+        },
+        {
+          "command": "canopy.stashClear",
+          "group": "3_drop@2"
+        }
+      ],
+      "canopy.sub.changes": [
+        {
+          "command": "canopy.commit",
+          "group": "1_commit@1"
+        },
+        {
+          "command": "canopy.commitAll",
+          "group": "1_commit@2"
+        },
+        {
+          "command": "canopy.commitAmend",
+          "group": "1_commit@3"
+        },
+        {
+          "command": "canopy.undoLastCommit",
+          "group": "1_commit@4"
+        },
+        {
+          "command": "canopy.stageAll",
+          "group": "2_stage@1"
+        },
+        {
+          "command": "canopy.unstageAll",
+          "group": "2_stage@2"
+        },
+        {
+          "command": "canopy.discardAll",
+          "group": "3_discard@1"
+        },
+        {
+          "command": "canopy.cleanUntracked",
+          "group": "3_discard@2"
+        }
+      ],
+      "canopy.sub.history": [
+        {
+          "command": "canopy.cherryPick",
+          "group": "1_history@1"
+        },
+        {
+          "command": "canopy.revertCommit",
+          "group": "1_history@2"
+        },
+        {
+          "command": "canopy.resetTo",
+          "group": "1_history@3"
+        }
+      ],
+      "canopy.sub.more": [
+        {
+          "command": "canopy.createTag",
+          "group": "1_tags@1"
+        },
+        {
+          "command": "canopy.deleteTag",
+          "group": "1_tags@2"
+        },
+        {
+          "command": "canopy.pushTags",
+          "group": "1_tags@3"
+        },
+        {
+          "command": "canopy.addRemote",
+          "group": "2_remotes@1"
+        },
+        {
+          "command": "canopy.removeRemote",
+          "group": "2_remotes@2"
+        },
+        {
+          "command": "canopy.worktreeAdd",
+          "group": "3_worktrees@1"
+        },
+        {
+          "command": "canopy.worktreeOpen",
+          "group": "3_worktrees@2"
+        },
+        {
+          "command": "canopy.worktreeRemove",
+          "group": "3_worktrees@3"
+        },
+        {
+          "command": "canopy.submoduleUpdate",
+          "group": "3_worktrees@4"
+        },
+        {
+          "command": "canopy.showOutput",
+          "group": "4_tools@1"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "canopy.clearFilter",
+          "when": "canopy.editMode || canopy.filtered"
+        },
+        {
+          "command": "canopy.doneEditing",
+          "when": "canopy.editMode || canopy.filtered"
+        },
+        {
+          "command": "canopy.showAllRepositories",
+          "when": "canopy.editMode || canopy.filtered"
+        },
+        {
+          "command": "canopy.hideCleanRepositories",
+          "when": "canopy.editMode || canopy.filtered"
+        },
+        {
+          "command": "canopy.renameFolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.deleteFolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.newSubfolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.editSmartFolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.fetchFolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.pullFolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.moveToFolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.removeFromFolder",
+          "when": "false"
+        },
+        {
+          "command": "canopy.hideRepository",
+          "when": "false"
+        }
+      ],
+      "canopy.sub.forge": [
+        {
+          "command": "canopy.forge.createRequest",
+          "group": "1_request@1",
+          "when": "viewItem =~ /:forge/"
+        },
+        {
+          "command": "canopy.forge.openRequest",
+          "group": "1_request@2",
+          "when": "viewItem =~ /:mr/"
+        },
+        {
+          "command": "canopy.forge.openPipeline",
+          "group": "2_ci@1",
+          "when": "viewItem =~ /:forge/"
+        },
+        {
+          "command": "canopy.forge.retryPipeline",
+          "group": "2_ci@2",
+          "when": "viewItem =~ /:pipelinefailed/"
+        },
+        {
+          "command": "canopy.forge.openProject",
+          "group": "3_open@1",
+          "when": "viewItem =~ /:forge/"
+        },
+        {
+          "command": "canopy.forge.refresh",
+          "group": "3_open@2",
+          "when": "viewItem =~ /:forge/"
+        },
+        {
+          "command": "canopy.gitlab.connect",
+          "group": "4_connect@1",
+          "when": "!(viewItem =~ /:forge/)"
+        },
+        {
+          "command": "canopy.github.connect",
+          "group": "4_connect@2",
+          "when": "!(viewItem =~ /:forge/)"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "CANOPY",
+      "properties": {
+        "canopy.layout": {
+          "type": "object",
+          "default": {},
+          "scope": "window",
+          "markdownDescription": "Folder layout and hidden repositories. Edited from the CANOPY view; saved in the workspace."
+        },
+        "canopy.profiles": {
+          "type": "array",
+          "default": [],
+          "scope": "window",
+          "markdownDescription": "Saved clone/switch profiles. Edited from the Profiles panel."
+        },
+        "canopy.repositories": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "markdownDescription": "Extra repository paths to track besides the ones found by scanning."
+        },
+        "canopy.scanRoots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "scope": "window",
+          "markdownDescription": "Extra folders to scan for Git repositories (workspace folders are always scanned). Supports `~` and `${workspaceFolder}`."
+        },
+        "canopy.scanDepth": {
+          "type": "number",
+          "default": 3,
+          "minimum": -1,
+          "maximum": 10,
+          "markdownDescription": "How many folder levels below each scan root to look for repositories (0–10). Use `-1` for no limit; scanning still stops after 50,000 folders, skips `canopy.scanExclude` folders, and does not look inside repositories unless `canopy.scanNested` is on."
+        },
+        "canopy.scanExclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "node_modules",
+            "bower_components",
+            ".venv",
+            "venv",
+            "target",
+            "dist",
+            "build",
+            "out"
+          ],
+          "markdownDescription": "Folder names skipped while scanning."
+        },
+        "canopy.scanNested": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Look for repositories nested inside other repositories (submodules, vendored repos)."
+        },
+        "canopy.autoFetch.intervalMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 0,
+          "markdownDescription": "Fetch all visible repositories every N minutes. `0` turns automatic fetching off."
+        },
+        "canopy.autoFetch.onFocus": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Fetch when the window regains focus and the last fetch is older than the interval."
+        },
+        "canopy.fetchPrune": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Prune deleted remote branches on every fetch."
+        },
+        "canopy.refreshIntervalSeconds": {
+          "type": "number",
+          "default": 60,
+          "minimum": 10,
+          "markdownDescription": "How often local status is re-read as a fallback to file watching."
+        },
+        "canopy.maxConcurrentGit": {
+          "type": "number",
+          "default": 6,
+          "minimum": 1,
+          "maximum": 16,
+          "markdownDescription": "Maximum number of Git processes CANOPY runs at once."
+        },
+        "canopy.gitPath": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Path to the Git executable. Empty uses `git.path`, then `git` on PATH."
+        },
+        "canopy.discard.safetyStash": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Save a stash before discarding changes so a discard can be undone."
+        },
+        "canopy.graph.maxCommits": {
+          "type": "number",
+          "default": 300,
+          "minimum": 50,
+          "maximum": 5000,
+          "markdownDescription": "Commits loaded into the commit graph."
+        },
+        "canopy.bulkPullMode": {
+          "type": "string",
+          "enum": [
+            "ff-only",
+            "rebase",
+            "merge"
+          ],
+          "default": "ff-only",
+          "markdownDescription": "How Pull works when run on several repositories or a folder at once."
+        },
+        "canopy.openDetailsOnClick": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Open the details panel when a repository is clicked in the view."
+        },
+        "canopy.gitlab.instances": {
+          "type": "array",
+          "default": [],
+          "scope": "application",
+          "markdownDescription": "GitLab servers CANOPY talks to (gitlab.com or self-hosted). Added automatically by **CANOPY: Connect GitLab…**. Access tokens are kept in secret storage, not here.",
+          "items": {
+            "type": "object",
+            "required": [
+              "url"
+            ],
+            "properties": {
+              "url": {
+                "type": "string",
+                "description": "Base URL, e.g. https://gitlab.example.com"
+              },
+              "name": {
+                "type": "string"
+              },
+              "sshHosts": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Other host names used in SSH remotes for this server."
+              }
+            }
+          }
+        },
+        "canopy.gitlab.refreshMinutes": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "markdownDescription": "How often pipeline and merge request status is refreshed for visible repositories."
+        },
+        "canopy.gitlab.cloneProtocol": {
+          "type": "string",
+          "enum": [
+            "https",
+            "ssh"
+          ],
+          "default": "https",
+          "markdownDescription": "Which URL to use when cloning from a GitLab group."
+        },
+        "canopy.gitlab.promptToConnect": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Offer to connect when repositories use a GitLab server that is not connected yet."
+        },
+        "canopy.github.enabled": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Show GitHub checks and pull requests for repositories on github.com (and on the GitHub Enterprise server in `github-enterprise.uri`)."
+        },
+        "canopy.github.refreshMinutes": {
+          "type": "number",
+          "default": 3,
+          "minimum": 1,
+          "markdownDescription": "How often GitHub checks and pull request status is refreshed for visible repositories."
+        },
+        "canopy.github.cloneProtocol": {
+          "type": "string",
+          "enum": [
+            "https",
+            "ssh"
+          ],
+          "default": "https",
+          "markdownDescription": "Which URL to use when cloning from a GitHub organization."
+        },
+        "canopy.github.promptToConnect": {
+          "type": "boolean",
+          "default": true,
+          "markdownDescription": "Offer to sign in when repositories are on GitHub and CANOPY is not signed in yet."
+        },
+        "canopy.branchColors.specialNames": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "main"
+          ],
+          "markdownDescription": "Branch names shown in the **special** color on the Profiles page, for example `main` or `master`."
+        },
+        "canopy.branchColors.special": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#b180d7",
+          "markdownDescription": "Color for the special branch names (`canopy.branchColors.specialNames`) on the Profiles page."
+        },
+        "canopy.branchColors.other": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#e535ab",
+          "markdownDescription": "Color for all other branch names on the Profiles page."
+        },
+        "canopy.branchColors.local": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#3794ff",
+          "markdownDescription": "Color for local branches in the Branch menu of the repository details."
+        },
+        "canopy.branchColors.remote": {
+          "type": "string",
+          "format": "color-hex",
+          "default": "#b180d7",
+          "markdownDescription": "Color for remote branches in the Branch menu of the repository details."
+        }
+      }
+    },
+    "walkthroughs": [
+      {
+        "id": "canopy.getStarted",
+        "title": "Get started with CANOPY",
+        "description": "Organize your repositories, connect GitLab and share profiles.",
+        "steps": [
+          {
+            "id": "find",
+            "title": "Find your repositories",
+            "description": "CANOPY lists every Git repository in your workspace folders. Add others by hand or point it at folders to scan.\n[Add Repository](command:canopy.addRepository)\n[Choose Folders to Scan](command:workbench.action.openSettings?%5B%22canopy.scanRoots%22%5D)",
+            "media": {
+              "markdown": "media/walkthrough/find.md"
+            },
+            "completionEvents": [
+              "onView:canopy.repos",
+              "onCommand:canopy.addRepository"
+            ]
+          },
+          {
+            "id": "gitlab",
+            "title": "Connect GitLab or GitHub",
+            "description": "See pipelines or checks and merge or pull requests for each repository, and create them without leaving VS Code. Works with gitlab.com, self-hosted GitLab, github.com and GitHub Enterprise.\n[Connect GitLab](command:canopy.gitlab.connect)\n[Sign in to GitHub](command:canopy.github.connect)",
+            "media": {
+              "markdown": "media/walkthrough/gitlab.md"
+            },
+            "completionEvents": [
+              "onContext:canopy.gitlab.connected",
+              "onContext:canopy.github.connected"
+            ]
+          },
+          {
+            "id": "organize",
+            "title": "Organize into folders",
+            "description": "Folders in CANOPY don't depend on where repositories live on disk. Use Edit Layout to drag repos into folders and hide the ones you don't need.\n[Edit Layout](command:canopy.editLayout)",
+            "media": {
+              "markdown": "media/walkthrough/organize.md"
+            },
+            "completionEvents": [
+              "onCommand:canopy.editLayout",
+              "onCommand:canopy.newFolder"
+            ]
+          },
+          {
+            "id": "clone",
+            "title": "Clone a GitLab group or GitHub organization",
+            "description": "Pick a group or organization, tick the projects you want, and CANOPY clones them into matching folders.\n[Clone from GitLab Group](command:canopy.gitlab.cloneFromGroup)\n[Clone from GitHub Organization](command:canopy.github.cloneFromGroup)",
+            "media": {
+              "markdown": "media/walkthrough/clone.md"
+            },
+            "completionEvents": [
+              "onCommand:canopy.gitlab.cloneFromGroup",
+              "onCommand:canopy.github.cloneFromGroup"
+            ]
+          },
+          {
+            "id": "profiles",
+            "title": "Save and share profiles",
+            "description": "A profile records which repositories and branches belong together. Switch to it in one step, or send it to a teammate.\n[Open Profiles](command:canopy.openProfiles)",
+            "media": {
+              "markdown": "media/walkthrough/profiles.md"
+            },
+            "completionEvents": [
+              "onCommand:canopy.openProfiles"
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
+    "package": "npm run compile && vsce package --no-dependencies --no-rewrite-relative-links",
+    "test:e2e": "npm run compile && node out/test/e2e/runE2e.js",
+    "demo": "node scripts/make-demo.mjs demo-canopy",
+    "screenshots": "npm run compile && node scripts/screenshots/render.mjs demo-canopy"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.0",
+    "@types/vscode": "1.95.0",
+    "@vscode/test-electron": "^3.1.0",
+    "@vscode/vsce": "^3.2.0",
+    "typescript": "~5.9.2"
+  },
+  "galleryBanner": {
+    "color": "#10241e",
+    "theme": "dark"
+  },
+  "preview": true
+}

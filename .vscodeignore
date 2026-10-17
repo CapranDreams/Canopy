@@ -1,0 +1,17 @@
+.vscode/**
+.vscode-test/**
+src/**
+test/**
+out/test/**
+**/*.map
+**/*.ts
+tsconfig.json
+node_modules/**
+.gitignore
+media/icon.svg
+.github/**
+PUBLISHING.md
+demo-canopy/**
+.screenshots/**
+scripts/**
+CONTRIBUTING.md

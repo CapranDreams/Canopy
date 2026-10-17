@@ -1,0 +1,45 @@
+name: Publish
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      showIdentityOnly:
+        description: "Only print the identity's Marketplace ID (for adding it as a publisher member)"
+        type: boolean
+        default: false
+
+permissions:
+  id-token: write   # lets azure/login exchange the GitHub OIDC token for an Entra ID token
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: marketplace
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Sign in to Microsoft Entra ID (no secrets stored, federated credential)
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Print the identity's Marketplace ID
+        if: inputs.showIdentityOnly
+        run: az rest -u https://app.vssps.visualstudio.com/_apis/profile/profiles/me --resource 499b84ac-1321-427f-aa17-267ca6975798
+
+      - run: npm ci
+        if: ${{ !inputs.showIdentityOnly }}
+      - run: npm test
+        if: ${{ !inputs.showIdentityOnly }}
+      - name: Publish to the Visual Studio Marketplace
+        if: ${{ !inputs.showIdentityOnly }}
+        run: npx vsce publish --azure-credential --no-dependencies
