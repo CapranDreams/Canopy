@@ -12,7 +12,10 @@ import { RepoTree } from '../tree';
 import { listBranches, listStashes } from '../pickers';
 import { branchColors } from '../branchColors';
 import { webviewHtml } from './webviewUtil';
+import { StatsRange, StatsService } from '../stats';
+import { folderOfRepo, walkFolders } from '../model/layout';
 import type { ForgeHub } from '../forge/hub';
+import type { ProfilesPanel } from './profilesPanel';
 
 type Scope = 'all' | 'local' | 'current';
 
@@ -37,6 +40,10 @@ export class DetailPanel implements vscode.Disposable {
   /** Last render reported by the webview (used by tests and to surface script errors). */
   lastRender: { rows: number; files: number } | undefined;
   private forgeService: ForgeHub | undefined;
+  private readonly stats = new StatsService();
+  /** Shared profiles editor shown in the Profiles tab. */
+  profiles: ProfilesPanel | undefined;
+  private profilesView: vscode.Disposable | undefined;
   /** CANOPY version shown in the panel's top-right corner. */
   version = '';
 
@@ -86,10 +93,13 @@ export class DetailPanel implements vscode.Disposable {
         localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
       });
       this.panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'canopy.svg');
-      this.panel.webview.html = webviewHtml(this.panel.webview, this.extensionUri, 'detail.js', 'CANOPY');
+      this.panel.webview.html = webviewHtml(this.panel.webview, this.extensionUri, 'detail.js', 'CANOPY', ['profiles.js']);
+      this.profilesView = this.profiles?.attachView((m) => void this.panel?.webview.postMessage({ type: 'profiles', msg: m }));
       this.panel.webview.onDidReceiveMessage((m) => this.onMessage(m).catch((e) => this.log.error(String(e))), undefined, this.disposables);
       this.panel.onDidDispose(() => {
         this.panel = undefined;
+        this.profilesView?.dispose();
+        this.profilesView = undefined;
       }, undefined, this.disposables);
       this.panel.onDidChangeViewState(() => {
         if (this.panel?.visible) this.schedulePost();
@@ -209,6 +219,11 @@ export class DetailPanel implements vscode.Disposable {
       return;
     }
     if (m.type === 'error') return this.log.error(`Details view script error: ${String(m.message)}`);
+    if (m.type === 'profiles' && m.msg && typeof m.msg === 'object') {
+      const p = this.profiles;
+      if (p) await p.handleMessage(m.msg as { type: string }, (x) => void this.panel?.webview.postMessage({ type: 'profiles', msg: x })).catch((e) => p.fail(e));
+      return;
+    }
     if (!r) return;
     const paths = Array.isArray(m.paths) ? (m.paths as string[]) : [];
     switch (m.type) {
@@ -276,6 +291,9 @@ export class DetailPanel implements vscode.Disposable {
         else if (SHA.test(sha)) await openCommitFileDiff(r, file.path, sha, file.status, file.origPath);
         break;
       }
+      case 'stats':
+        await this.postStats(r, (['3m', '1y', 'all'] as const).includes(m.range as StatsRange) ? (m.range as StatsRange) : '1y', m.scope === 'folder' ? 'folder' : 'repo');
+        break;
       case 'commitAction':
         await this.commitAction(r, String(m.action), String(m.sha), typeof m.ref === 'string' ? m.ref : undefined);
         break;
@@ -284,6 +302,41 @@ export class DetailPanel implements vscode.Disposable {
         await this.manager.refresh(r);
         this.schedulePost(0);
         break;
+    }
+  }
+
+  /** The repo's CANOPY folder (including subfolders) and the loaded repos in it. */
+  private folderOf(r: Repo): { name: string; repos: Repo[] } | undefined {
+    const f = folderOfRepo(this.tree.currentLayout, r.key);
+    if (!f) return undefined;
+    const keys = new Set(f.repos);
+    for (const { folder } of walkFolders(f.children)) folder.repos.forEach((k) => keys.add(k));
+    const repos = [...keys].map((k) => this.manager.get(k)).filter((x): x is Repo => !!x && x.loaded);
+    return { name: f.name, repos };
+  }
+
+  private async postStats(r: Repo, range: StatsRange, scope: 'repo' | 'folder'): Promise<void> {
+    const folder = this.folderOf(r);
+    const repos = scope === 'folder' && folder && folder.repos.length > 1 ? folder.repos : [r];
+    const effective = repos.length > 1 ? 'folder' : 'repo';
+    const base = { type: 'stats', root: r.root, range, scope: effective, folder: folder && folder.repos.length > 1 ? { name: folder.name, count: folder.repos.length } : null };
+    try {
+      const data = await this.stats.summary(repos, range);
+      if (this.repo !== r) return;
+      void this.panel?.webview.postMessage({ ...base, data, ownership: effective === 'repo' ? this.stats.ownership(r) ?? null : null });
+    } catch (e) {
+      if (this.repo !== r) return;
+      void this.panel?.webview.postMessage({ ...base, error: e instanceof Error ? e.message : String(e) });
+      return;
+    }
+    if (effective === 'repo') {
+      this.stats.startOwnership(
+        r,
+        (ownership) => {
+          if (this.repo === r) void this.panel?.webview.postMessage({ type: 'statsOwners', root: r.root, ownership });
+        },
+        () => this.repo === r && !!this.panel
+      );
     }
   }
 

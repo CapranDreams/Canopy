@@ -5,8 +5,10 @@ import { GitError } from '../git/runner';
 import { Log } from '../log';
 import { RepoManager } from '../manager';
 import { Repo } from '../repo';
-import { openMergeEditor } from '../gitContent';
-import { askRefName, listBranches, listTags, listWorktrees, pickBranch, pickCommit, pickRemote, pickRemoteBranch, pickStash } from '../pickers';
+import { openCommitFileDiff, openMergeEditor } from '../gitContent';
+import { parseNameStatusZ, parseNumstatZ, withLineStats } from '../git/parse';
+import { timeAgo } from '../tree';
+import { askRefName, listBranches, listStashes, listTags, listWorktrees, pickBranch, pickCommit, pickRemote, pickRemoteBranch, pickStash } from '../pickers';
 import { validateCloneUrl } from '../util/remote';
 import { mapLimit } from '../util/limit';
 
@@ -100,11 +102,20 @@ export class GitOps {
       pullRebase: many((rs) => this.pull(rs, 'rebase')),
       pullFfOnly: many((rs) => this.pull(rs, 'ff-only')),
       pullFrom: one((r) => this.pullFrom(r)),
+      pullSubmodules: many((rs) =>
+        this.forEachRepo(rs, 'Pull with submodules', async (r) => {
+          const quiet = rs.length > 1;
+          // pull --recurse-submodules moves initialized submodules; update --init also fetches ones never cloned.
+          if ((await this.exec(r, ['pull', '--recurse-submodules'], { title: 'Pull with submodules', notify: !quiet, quiet })) === undefined) return false;
+          return (await this.exec(r, ['submodule', 'update', '--init', '--recursive'], { title: 'Update submodules', notify: !quiet, quiet })) !== undefined;
+        })
+      ),
       push: many((rs) => this.push(rs)),
       pushTo: one((r) => this.pushTo(r)),
       publishBranch: one((r) => this.publish(r)),
       pushTags: many((rs) => this.forEachRepo(rs, 'Push tags', async (r) => (await this.exec(r, ['push', '--tags'], { title: 'Push tags', notify: rs.length === 1, quiet: rs.length > 1 })) !== undefined)),
       forcePushWithLease: one((r) => this.forcePush(r)),
+      forcePush: one((r) => this.forcePush(r, true)),
       fetch: many((rs) => this.fetch(rs, {})),
       fetchPrune: many((rs) => this.fetch(rs, { prune: true })),
       fetchAllRemotes: many((rs) => this.fetch(rs, { allRemotes: true })),
@@ -143,6 +154,7 @@ export class GitOps {
       stashApply: one((r) => this.stashPick(r, 'apply')),
       stashPop: one((r) => this.stashPick(r, 'pop')),
       stashDrop: one((r) => this.stashPick(r, 'drop')),
+      stashView: one((r) => this.stashView(r)),
       stashClear: one((r) => this.stashClear(r)),
       commit: one((r, arg) => this.commit(r, typeof arg === 'string' ? arg : undefined, [])),
       commitAll: one((r) => this.commitAll(r)),
@@ -233,9 +245,12 @@ export class GitOps {
     if (remote) await this.exec(r, ['push', '-u', remote, r.branch], { title: `Publish ${r.branch}`, notify: true });
   }
 
-  private async forcePush(r: Repo): Promise<void> {
-    if (!(await this.confirm(`Force push ${r.branchLabel} in ${r.name}?`, 'This overwrites the remote branch. --force-with-lease refuses if someone else pushed since your last fetch.', 'Force Push'))) return;
-    await this.exec(r, ['push', '--force-with-lease'], { title: 'Force push', notify: true });
+  private async forcePush(r: Repo, unconditional = false): Promise<void> {
+    const detail = unconditional
+      ? 'This overwrites the remote branch even if someone else pushed commits you do not have; their commits are lost. Prefer Force Push (With Lease) unless you are sure.'
+      : 'This overwrites the remote branch. --force-with-lease refuses if someone else pushed since your last fetch.';
+    if (!(await this.confirm(`Force push ${r.branchLabel} in ${r.name}?`, detail, unconditional ? 'Force Push Anyway' : 'Force Push'))) return;
+    await this.exec(r, ['push', unconditional ? '--force' : '--force-with-lease'], { title: 'Force push', notify: true });
   }
 
   async sync(repos: Repo[]): Promise<void> {
@@ -535,6 +550,57 @@ export class GitOps {
     if (!s) return;
     if (action === 'drop' && !(await this.confirm(`Drop ${s.ref}?`, s.message, 'Drop'))) return;
     await this.exec(r, ['stash', action, s.ref], { title: `${action} ${s.ref}` });
+  }
+
+  /** Lists stashes; picking one shows its files (click for a diff) plus Apply / Pop / Drop. */
+  private async stashView(r: Repo): Promise<void> {
+    const stashes = await listStashes(r);
+    if (!stashes.length) return void vscode.window.showInformationMessage(`${r.name} has no stashes.`);
+    const pick = await vscode.window.showQuickPick(
+      stashes.map((s) => ({ label: s.ref, description: s.message, detail: s.time ? `stashed ${timeAgo(s.time * 1000)}` : undefined, s })),
+      { title: `Stashes in ${r.name}`, placeHolder: 'Pick a stash to see its files and actions', matchOnDescription: true }
+    );
+    if (!pick) return;
+    const s = pick.s;
+    const hash = (await r.git(['rev-parse', s.ref], { readOnly: true })).trim();
+    const listFiles = async (rev: string, extra: string[], status?: string) => {
+      const diff = (fmt: string) => r.git(['diff-tree', '-r', '-z', '--no-commit-id', fmt, '-M', ...extra, rev, '--'], { readOnly: true });
+      const [names, stats] = await Promise.all([diff('--name-status'), diff('--numstat').catch(() => '')]);
+      return withLineStats(parseNameStatusZ(names), parseNumstatZ(stats)).map((f) => ({ ...f, status: status ?? f.status, rev }));
+    };
+    // The stash commit diffs its first parent (tracked changes); a third parent holds untracked files.
+    const hasUntracked = (await r.git(['rev-parse', '--verify', '-q', `${hash}^3`], { readOnly: true }).catch(() => '')).trim() !== '';
+    const files = [...(await listFiles(hash, ['--diff-merges=first-parent'])), ...(hasUntracked ? await listFiles(`${hash}^3`, ['--root'], 'A') : [])];
+    type Item = vscode.QuickPickItem & { action?: 'apply' | 'pop' | 'drop'; file?: (typeof files)[number] };
+    const qp = vscode.window.createQuickPick<Item>();
+    qp.title = `${s.ref}: ${s.message}`;
+    qp.placeholder = 'Pick a file to see its diff, or an action';
+    qp.ignoreFocusOut = true;
+    qp.matchOnDescription = true;
+    qp.items = [
+      { label: '$(check) Apply', description: 'restore these changes and keep the stash', action: 'apply' },
+      { label: '$(arrow-up) Pop', description: 'restore these changes and delete the stash', action: 'pop' },
+      { label: '$(trash) Drop…', description: 'delete the stash', action: 'drop' },
+      { label: `Files · ${files.length}`, kind: vscode.QuickPickItemKind.Separator },
+      ...files.map((f) => ({
+        label: f.path,
+        description: [f.status, typeof f.added === 'number' ? `+${f.added} −${f.deleted}` : '', f.rev.endsWith('^3') ? 'untracked' : ''].filter(Boolean).join('  '),
+        file: f
+      }))
+    ];
+    qp.onDidAccept(async () => {
+      const item = qp.selectedItems[0];
+      if (!item) return;
+      if (item.file) {
+        await openCommitFileDiff(r, item.file.path, item.file.rev, item.file.status, item.file.origPath);
+        return;
+      }
+      qp.hide();
+      if (item.action === 'drop' && !(await this.confirm(`Drop ${s.ref}?`, s.message, 'Drop'))) return;
+      if (item.action) await this.exec(r, ['stash', item.action, s.ref], { title: `${item.action} ${s.ref}` });
+    });
+    qp.onDidHide(() => qp.dispose());
+    qp.show();
   }
 
   private async stashClear(r: Repo): Promise<void> {

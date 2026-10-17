@@ -118,7 +118,7 @@ export async function run(): Promise<void> {
   });
 
   await step('saved profiles list both workspace profiles and profile files in the project', async () => {
-    const panel = profilesPanel as unknown as { onMessage(m: unknown): Promise<void> };
+    const panel = profilesPanel;
     const editor = await profiles.editorFromCurrent();
     editor.name = 'In workspace';
     await profiles.save(profiles.profileFromEditor(editor));
@@ -139,10 +139,10 @@ export async function run(): Promise<void> {
     assert.match(file.location, /team\.canopy-profile\.json$/);
 
     // Loading a file profile and saving writes back to the same file, without asking where.
-    await panel.onMessage({ type: 'load', id: file.profile.id });
+    await panel.handleMessage({ type: 'load', id: file.profile.id }, () => undefined);
     const loaded = await profiles.editorFromProfile(file.profile, 'profile', file.uri!.toString());
     loaded.name = 'Renamed in file';
-    await panel.onMessage({ type: 'save', editor: loaded });
+    await panel.handleMessage({ type: 'save', editor: loaded }, () => undefined);
     const onDisk = JSON.parse(fs.readFileSync(fileUri.fsPath, 'utf8'));
     assert.equal(onDisk.name, 'Renamed in file');
     assert.equal(onDisk.canopyProfile, 1);

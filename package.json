@@ -2,7 +2,7 @@
   "name": "canopy",
   "displayName": "CANOPY",
   "description": "Organize many Git repositories into your own folders, see what needs attention, run any Git operation, follow GitLab and GitHub pipelines, merge requests and pull requests, and share clone/switch profiles.",
-  "version": "0.3.6",
+  "version": "0.3.8",
   "publisher": "MyriadArtificia",
   "license": "MIT",
   "icon": "media/icon.png",
@@ -238,6 +238,21 @@
       {
         "command": "canopy.pullFfOnly",
         "title": "Pull (Fast-Forward Only)",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.pullSubmodules",
+        "title": "Pull (Including Submodules)",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.forcePush",
+        "title": "Force Push…",
+        "category": "CANOPY"
+      },
+      {
+        "command": "canopy.stashView",
+        "title": "View Stashes…",
         "category": "CANOPY"
       },
       {
@@ -1119,6 +1134,10 @@
           "group": "1_pull@4"
         },
         {
+          "command": "canopy.pullSubmodules",
+          "group": "1_pull@5"
+        },
+        {
           "command": "canopy.push",
           "group": "2_push@1"
         },
@@ -1137,6 +1156,10 @@
         {
           "command": "canopy.forcePushWithLease",
           "group": "2_push@5"
+        },
+        {
+          "command": "canopy.forcePush",
+          "group": "2_push@6"
         },
         {
           "command": "canopy.fetch",
@@ -1271,6 +1294,10 @@
         {
           "command": "canopy.stashPopLatest",
           "group": "2_apply@2"
+        },
+        {
+          "command": "canopy.stashView",
+          "group": "2_apply@0"
         },
         {
           "command": "canopy.stashApply",
@@ -1589,6 +1616,42 @@
           ],
           "default": "reuseGroup",
           "markdownDescription": "Where file diffs from the details panel open. Each diff opens as a preview tab, so the next one replaces it."
+        },
+        "canopy.stats.maxCommits": {
+          "type": "number",
+          "default": 20000,
+          "minimum": 100,
+          "markdownDescription": "Most recent commits read for the Stats tab of the details panel. Larger values cover more history but take longer on big repositories."
+        },
+        "canopy.stats.exclude": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [
+            "package-lock.json",
+            "npm-shrinkwrap.json",
+            "yarn.lock",
+            "pnpm-lock.yaml",
+            "bun.lockb",
+            "Cargo.lock",
+            "poetry.lock",
+            "Pipfile.lock",
+            "composer.lock",
+            "Gemfile.lock",
+            "go.sum",
+            "packages.lock.json",
+            "*.min.js",
+            "*.min.css",
+            "*.map",
+            "*.snap",
+            "node_modules/**",
+            "vendor/**",
+            "dist/**",
+            "build/**",
+            "out/**"
+          ],
+          "markdownDescription": "Files left out of line counts in the Stats tab (lockfiles, minified and generated output). A pattern without `/` matches the file name anywhere (`*.min.js`); one with `/` matches from the repository root (`dist/**`)."
         },
         "canopy.graph.maxCommits": {
           "type": "number",

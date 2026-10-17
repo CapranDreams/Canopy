@@ -249,7 +249,7 @@ export function parseNameStatusZ(out: string): FileEntry[] {
 
 /** Parses `git diff --numstat -z` into path -> [added, deleted]; binary files ('-') are left out. */
 export function parseNumstatZ(out: string): Map<string, [number, number]> {
-  const parts = out.split(' ');
+  const parts = out.split('\0');
   const stats = new Map<string, [number, number]>();
   for (let i = 0; i < parts.length; i++) {
     const m = /^(\d+|-)	(\d+|-)	(.*)$/s.exec(parts[i]);

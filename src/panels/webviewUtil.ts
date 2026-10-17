@@ -7,8 +7,11 @@ export function nonce(): string {
   return s;
 }
 
-/** Builds the HTML shell for a webview that loads one script and the shared stylesheet from media/. */
-export function webviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, script: string, title: string): string {
+/**
+ * Builds the HTML shell for a webview that loads one script and the shared stylesheet from media/.
+ * `embedded` scripts load first and are marked data-embed, so they mount inside the main page instead of owning it.
+ */
+export function webviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, script: string, title: string, embedded: string[] = []): string {
   const n = nonce();
   const media = (f: string) => webview.asWebviewUri(vscode.Uri.joinPath(extensionUri, 'media', f));
   return `<!DOCTYPE html>
@@ -22,7 +25,8 @@ export function webviewHtml(webview: vscode.Webview, extensionUri: vscode.Uri, s
 </head>
 <body>
 <div id="app" class="loading">Loading…</div>
-<script nonce="${n}" src="${media(script)}"></script>
+${embedded.map((e) => `<script nonce="${n}" data-embed="1" src="${media(e)}"></script>
+`).join('')}<script nonce="${n}" src="${media(script)}"></script>
 </body>
 </html>`;
 }

@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.8
+- Profiles is now a tab in the details panel next to Graph and Stats (it still opens as its own editor tab from the Profiles commands; both show the same profile being edited).
+- Pull menu: Pull (Including Submodules) pulls and then initializes and updates every submodule, recursively. It works the same whether or not the repository was cloned with --recursive.
+- Push menu: Force Push… (plain --force, with a stronger warning) next to Force Push (With Lease)….
+- Stash menu: View Stashes… lists stashes; pick one to see its files with lines added and deleted (click a file for its diff, untracked files included) and to apply, pop or drop it.
+- Fixed a raw NUL character in the line-count parser source that made tools treat parse.ts as a binary file.
+
+## 0.3.7
+- New Stats tab in the details panel (next to Graph): lines of code, commits per week or month, lines of code over time, authors with commits, lines added and deleted and lines owned today (git blame, counted in the background), languages, a weekday-by-hour activity heatmap and the most changed files, for 3 months, 1 year or all time. Folder totals combine every repository in the same CANOPY folder.
+- New settings canopy.stats.exclude (lockfiles and generated files left out of line counts) and canopy.stats.maxCommits.
+
 ## 0.3.6
 - Changes list (left panel) shows lines added and deleted next to each file: staged files against HEAD, unstaged files against the index (new untracked files count every line as added; binary files show no counts).
 

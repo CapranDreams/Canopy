@@ -52,6 +52,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<CanopyApi>
   detail.version = `v${String(ctx.extension.packageJSON.version)}${ctx.extensionMode === vscode.ExtensionMode.Development ? ' (dev)' : ''}`;
   const profiles = new Profiles(ctx, store, manager, tree, log);
   const profilesPanel = new ProfilesPanel(ctx.extensionUri, profiles, store, log);
+  detail.profiles = profilesPanel;
   const statusBar = new StatusBar(manager, tree, store);
   const gitlab = new GitLabService(ctx, manager, store, ops, log);
   const github = new GitHubService(ctx, manager, store, ops, log);

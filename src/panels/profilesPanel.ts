@@ -7,10 +7,17 @@ import { timeAgo } from '../tree';
 import { webviewHtml } from './webviewUtil';
 import { branchColors } from '../branchColors';
 
-/** The Profiles editor tab: saved profiles on the left, an editable repo/branch table on the right. */
+type Post = (m: unknown) => void;
+
+/**
+ * The Profiles editor: saved profiles on the left, an editable repo/branch table on the right.
+ * Shown as its own editor tab and as the Profiles tab of the details panel; both share one editor model.
+ */
 export class ProfilesPanel implements vscode.Disposable {
   private panel: vscode.WebviewPanel | undefined;
   private editor: EditorModel | undefined;
+  /** Other places the profiles UI is mounted (the details panel's Profiles tab). */
+  private readonly views = new Set<Post>();
   lastRenderRows: number | undefined;
   private readonly disposables: vscode.Disposable[] = [];
 
@@ -42,10 +49,11 @@ export class ProfilesPanel implements vscode.Disposable {
       });
       this.panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'canopy.svg');
       this.panel.webview.html = webviewHtml(this.panel.webview, this.extensionUri, 'profiles.js', 'CANOPY Profiles');
-      this.panel.webview.onDidReceiveMessage((m) => this.onMessage(m).catch((e) => this.fail(e)), undefined, this.disposables);
+      const reply: Post = (x) => void this.panel?.webview.postMessage(x);
+      this.panel.webview.onDidReceiveMessage((m) => this.handleMessage(m, reply).catch((e) => this.fail(e)), undefined, this.disposables);
       this.panel.onDidDispose(() => {
         this.panel = undefined;
-        this.editor = undefined;
+        if (!this.views.size) this.editor = undefined;
       }, undefined, this.disposables);
     } else {
       this.panel.reveal();
@@ -58,11 +66,26 @@ export class ProfilesPanel implements vscode.Disposable {
     }
   }
 
+  /** Mounts the profiles UI somewhere else (messages to it go through `post`). */
+  attachView(post: Post): vscode.Disposable {
+    this.views.add(post);
+    return new vscode.Disposable(() => {
+      this.views.delete(post);
+      if (!this.panel && !this.views.size) this.editor = undefined;
+    });
+  }
+
+  private broadcast(m: unknown): void {
+    void this.panel?.webview.postMessage(m);
+    this.views.forEach((post) => post(m));
+  }
+
   private async postState(): Promise<void> {
-    if (!this.panel) return;
+    if (!this.panel && !this.views.size) return;
+    if (!this.editor) this.editor = await this.profiles.editorFromCurrent();
     const active = this.profiles.activeId;
     const entries = await this.profiles.listAll();
-    void this.panel.webview.postMessage({
+    this.broadcast({
       type: 'state',
       settingsLocation: this.profiles.settingsLocation(),
       colors: branchColors(),
@@ -90,13 +113,14 @@ export class ProfilesPanel implements vscode.Disposable {
     }
   }
 
-  private fail(e: unknown): void {
+  fail(e: unknown): void {
     const msg = e instanceof ProfileValidationError ? e.message : String((e as Error)?.message ?? e);
     this.log.error(`Profiles: ${msg}`);
     void vscode.window.showErrorMessage(`CANOPY profile: ${msg}`);
   }
 
-  private async onMessage(m: { type: string; [k: string]: unknown }): Promise<void> {
+  /** Handles a message from either place the UI is shown; `reply` answers only that view. */
+  async handleMessage(m: { type: string; [k: string]: unknown }, reply: Post): Promise<void> {
     if (m.type === 'rendered') {
       this.lastRenderRows = Number(m.rows);
       return;
@@ -108,7 +132,7 @@ export class ProfilesPanel implements vscode.Disposable {
         return this.postState();
       case 'edit':
         // Keep the JSON preview current while the user edits.
-        return void this.panel?.webview.postMessage({ type: 'preview', preview: this.editor ? this.previewJson(this.editor) : '' });
+        return this.broadcast({ type: 'preview', preview: this.editor ? this.previewJson(this.editor) : '' });
       case 'newFromCurrent':
         this.editor = await this.profiles.editorFromCurrent();
         return this.postState();
@@ -144,7 +168,7 @@ export class ProfilesPanel implements vscode.Disposable {
         const p = m.id ? await this.targetProfile(m.id) : this.profiles.profileFromEditor(this.requireEditor());
         const base = m.id ? this.profiles.defaultBaseFolder() : this.requireEditor().baseFolder;
         const { steps, summary } = this.profiles.plan(p, base);
-        return void this.panel?.webview.postMessage({
+        return reply({
           type: 'plan',
           id: m.id ?? null,
           name: p.name,

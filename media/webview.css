@@ -247,3 +247,85 @@ button.chip:hover { background: var(--hover); }
 .menu .mi.b-remote .bname { color: var(--branch-remote); }
 .menu .mi.current .bname { font-weight: 700; }
 .menu .mi.current { cursor: default; }
+
+/* Graph / Stats tabs */
+.tabs { display: inline-flex; gap: 2px; margin-right: 4px; }
+.tab { border: 0; background: transparent; color: var(--muted); font: inherit; font-size: 13px; font-weight: 600; padding: 2px 6px; border-bottom: 2px solid transparent; cursor: pointer; }
+.tab.on { color: var(--vscode-foreground); border-bottom-color: var(--vscode-focusBorder); }
+.tab:hover { color: var(--vscode-foreground); }
+
+/* Stats tab */
+:root { --accent: var(--vscode-charts-blue, #3794ff); --surface: var(--vscode-editor-background); }
+.stats { padding: 4px 12px 8px; display: flex; flex-direction: column; gap: var(--gap); }
+.stats .add { color: var(--added); } .stats .del { color: var(--deleted); }
+.tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; }
+.tile { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; }
+.tile .tl { font-size: 12px; color: var(--muted); }
+.tile .tv { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; margin-top: 2px; }
+.tile .ts { font-size: 11.5px; color: var(--muted); }
+.sgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); gap: var(--gap); }
+.spanel { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px 10px; min-width: 0; }
+.spanel.wide { grid-column: 1 / -1; }
+.sp-h { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.sp-h h3 { margin: 0; font-size: 12.5px; font-weight: 600; }
+.sp-h .muted { font-size: 11.5px; }
+.chart { width: 100%; min-width: 0; overflow: hidden; }
+.chart-svg { display: block; overflow: visible; }
+.chart-svg .grid { stroke: var(--border); stroke-width: 1; }
+.chart-svg .ax { fill: var(--muted); font-size: 10.5px; font-family: var(--vscode-font-family); }
+.chart-svg .bar { fill: var(--accent); }
+.chart-svg .hit { fill: transparent; }
+.chart-svg .hb:hover .bar { fill: color-mix(in srgb, var(--accent) 75%, var(--vscode-foreground)); }
+.chart-svg .hb:hover .hit { fill: color-mix(in srgb, var(--vscode-foreground) 6%, transparent); }
+.chart-svg .line { fill: none; stroke: var(--accent); stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart-svg .area { fill: var(--accent); fill-opacity: 0.1; }
+.chart-svg .dot { fill: var(--accent); stroke: var(--surface); stroke-width: 2; }
+.chart-svg .hb .guide, .chart-svg .hb .dot { opacity: 0; }
+.chart-svg .hb:hover .guide, .chart-svg .hb:hover .dot { opacity: 1; }
+.chart-svg .guide { stroke: var(--muted); stroke-width: 1; }
+.hm { stroke: none; }
+.hm.q0 { fill: color-mix(in srgb, var(--vscode-foreground) 7%, transparent); }
+.hm.q1 { fill: color-mix(in srgb, var(--accent) 30%, transparent); }
+.hm.q2 { fill: color-mix(in srgb, var(--accent) 55%, transparent); }
+.hm.q3 { fill: color-mix(in srgb, var(--accent) 78%, transparent); }
+.hm.q4 { fill: var(--accent); }
+rect.hm[data-tip]:hover { stroke: var(--vscode-foreground); stroke-width: 1.5; }
+.hm-legend { display: flex; align-items: center; gap: 3px; margin-top: 6px; font-size: 11px; color: var(--muted); }
+.hm-legend span:first-child { margin-right: 3px; } .hm-legend span:last-child { margin-left: 3px; }
+.share { display: block; width: 100%; height: 6px; }
+.share .track { fill: color-mix(in srgb, var(--accent) 14%, transparent); }
+.share .fill { fill: var(--accent); }
+.langs { display: flex; flex-direction: column; gap: 6px; }
+.lang { display: grid; grid-template-columns: minmax(80px, 140px) 1fr 64px 48px; align-items: center; gap: 8px; font-size: 12px; }
+.lang .lname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lang .num, .lang .pct { text-align: right; font-variant-numeric: tabular-nums; }
+.lang .pct { color: var(--muted); }
+.stbl { width: 100%; border-collapse: collapse; font-size: 12px; }
+.stbl th { text-align: left; font-weight: 600; color: var(--muted); font-size: 11.5px; padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+.stbl td { padding: 3px 6px; border-bottom: 1px solid color-mix(in srgb, var(--border) 50%, transparent); }
+.stbl tr:hover td { background: var(--hover); }
+.stbl .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.stbl td.own { width: 1%; }
+.ownwrap { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
+.ownwrap .share { flex: 0 0 120px; width: 120px; }
+.ownwrap > span { min-width: 48px; }
+.stbl .who { max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.stbl .path { font-family: var(--vscode-editor-font-family); font-size: 11.5px; word-break: break-all; }
+.stbl .add { color: var(--added); } .stbl .del { color: var(--deleted); }
+.sort { border: 0; background: transparent; color: inherit; font: inherit; padding: 0; cursor: pointer; }
+.sort.on { color: var(--vscode-foreground); }
+.sort.on::after { content: ' ▾'; }
+th.num .sort { width: 100%; text-align: right; }
+.link { border: 0; background: transparent; padding: 0; color: var(--vscode-textLink-foreground); font: inherit; cursor: pointer; text-align: left; }
+.link:hover { text-decoration: underline; }
+.stats-scroll { padding-top: 4px; }
+.tip { position: fixed; z-index: 100; pointer-events: none; opacity: 0; white-space: pre; padding: 5px 8px; border-radius: 4px; font-size: 12px; line-height: 1.4;
+  background: var(--vscode-editorHoverWidget-background, var(--menu-bg)); color: var(--vscode-editorHoverWidget-foreground, var(--vscode-foreground));
+  border: 1px solid var(--vscode-editorHoverWidget-border, var(--border)); box-shadow: 0 2px 8px var(--vscode-widget-shadow, rgba(0,0,0,.3)); }
+.tip.on { opacity: 1; }
+
+/* Profiles tab inside the details panel */
+.page.shell { padding-bottom: 0; gap: 6px; }
+.page.shell .graph-h { padding: 0; }
+#profiles-root .page { padding-top: 6px; }
+#profiles-root .crumb { display: none; }
