@@ -3,9 +3,10 @@
  *
  * Terms:  is:conflict|operation|diverged|behind|incoming|ahead|unpushed|dirty|changes|clean|detached|unpublished|error
  *         is:mr / is:pr, is:draft, is:mr-conflict / is:pr-conflict  pipeline:<status> (success, failed, running, canceled, none)
- *         name:<glob> branch:<glob> path:<glob> folder:<glob> remote:<text>
+ *         name:<glob> branch:<glob> path:<glob> folder:<glob> (alias in:) repo:<glob> remote:<text>
  *         behind>N ahead>N changes>N (also <, >=, <=, =)   age<7d age>2w (h, d, w, m, y)
- *         bare words match name or branch.
+ *         bare words and globs match name, branch, any containing CANOPY folder, or "Folder/Sub/name".
+ *         Globs: * ** ? [abc] [!abc] {a,b}; text without wildcards matches as a substring.
  * Operators: AND (or juxtaposition), OR, NOT / leading "-", parentheses.
  */
 import { RepoFacts, attentionOf } from './types';
@@ -106,15 +107,75 @@ export function compileQuery(query: string): Predicate {
   return pred;
 }
 
-function glob(pattern: string): (s: string) => boolean {
-  const re = new RegExp('^' + pattern.toLowerCase().split('*').map(escapeRe).join('.*') + '$');
-  const contains = !pattern.includes('*');
-  const needle = pattern.toLowerCase();
-  return (s) => (contains ? s.toLowerCase().includes(needle) : re.test(s.toLowerCase()));
+/**
+ * Case-insensitive matcher. Text without wildcards matches anywhere in the string (substring); with wildcards
+ * the whole string must match: `*` / `**` any run of characters (including `/`), `?` one character,
+ * `[abc]` / `[a-z]` / `[!abc]` a character class, `{a,b}` alternatives.
+ */
+export function glob(pattern: string): (s: string) => boolean {
+  const p = pattern.toLowerCase();
+  if (!/[*?[{]/.test(p)) return (s) => s.toLowerCase().includes(p);
+  let re: RegExp;
+  try {
+    re = new RegExp('^' + globSource(p) + '$');
+  } catch {
+    throw new QueryError(`Invalid pattern "${pattern}".`);
+  }
+  return (s) => re.test(s.toLowerCase());
+}
+
+function globSource(p: string): string {
+  let out = '';
+  let braces = 0;
+  for (let i = 0; i < p.length; i++) {
+    const c = p[i];
+    if (c === '*') {
+      while (p[i + 1] === '*') i++;
+      out += '.*';
+    } else if (c === '?') {
+      out += '.';
+    } else if (c === '[') {
+      const end = p.indexOf(']', i + 2);
+      if (end < 0) {
+        out += '\\[';
+        continue;
+      }
+      const body = p.slice(i + 1, end);
+      out += '[' + (body[0] === '!' ? '^' + escapeClass(body.slice(1)) : escapeClass(body)) + ']';
+      i = end;
+    } else if (c === '{') {
+      braces++;
+      out += '(?:';
+    } else if (c === '}' && braces) {
+      braces--;
+      out += ')';
+    } else if (c === ',' && braces) {
+      out += '|';
+    } else {
+      out += escapeRe(c);
+    }
+  }
+  return out + ')'.repeat(braces);
 }
 
 function escapeRe(s: string): string {
   return s.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function escapeClass(s: string): string {
+  return s.replace(/[\\\]^]/g, '\\$&');
+}
+
+/** Folder names a repo is in ("Platform", "Backend") and the paths down to it ("Platform", "Platform/Backend"). */
+function folderCandidates(r: RepoFacts): string[] {
+  const out = [...r.folderNames];
+  for (let i = 2; i <= r.folderNames.length; i++) out.push(r.folderNames.slice(0, i).join('/'));
+  return out;
+}
+
+/** A bare word or glob: the repo's name or branch, any folder it is in, or its folder path plus name ("Platform/api"). */
+function anyName(g: (s: string) => boolean): Predicate {
+  return (r) => g(r.name) || g(r.branch ?? '') || folderCandidates(r).some(g) || (r.folderNames.length > 0 && g(`${r.folderNames.join('/')}/${r.name}`));
 }
 
 const AGE_UNITS: Record<string, number> = { h: 3600, d: 86400, w: 604800, m: 2592000, y: 31536000 };
@@ -140,7 +201,9 @@ function parseTerm(word: string): Predicate {
       case 'name': return (r) => g(r.name);
       case 'branch': return (r) => g(r.branch ?? r.headShort ?? '');
       case 'path': return (r) => g(r.root.replace(/\\/g, '/'));
-      case 'folder': return (r) => r.folderNames.some(g);
+      case 'folder':
+      case 'in': return (r) => folderCandidates(r).some(g);
+      case 'repo': return anyName(g);
       case 'remote': return (r) => r.remoteUrls.some((u) => u.toLowerCase().includes(value.toLowerCase()));
       case 'pipeline':
       case 'ci': {
@@ -171,8 +234,7 @@ function parseTerm(word: string): Predicate {
     const f = get[field.toLowerCase()];
     return (r) => compare(op, f(r), n);
   }
-  const g = glob(word);
-  return (r) => g(r.name) || g(r.branch ?? '');
+  return anyName(glob(word));
 }
 
 function isTerm(v: string): Predicate {

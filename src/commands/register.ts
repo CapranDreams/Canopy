@@ -111,6 +111,24 @@ export function registerCommands(d: Deps): vscode.Disposable[] {
       await vscode.env.openExternal(vscode.Uri.parse(url));
     })),
     reg('showOutput', () => log.show()),
+    reg('showGitActivity', () => {
+      const loaded = manager.all.filter((r) => !r.lazy && r.loaded).length;
+      const fromBuiltin = manager.builtinCount();
+      const section = (title: string, windowMs?: number) => {
+        const s = manager.runner.activity.summary(windowMs);
+        const rows = s.byCommand.map((c) => `  ${c.cmd.padEnd(14)} ${String(c.count).padStart(6)} processes ${String(Math.round(c.totalMs)).padStart(8)} ms   (${c.userCount} for your own actions)`);
+        return [`${title}: ${s.processes} git processes, ${Math.round(s.totalMs)} ms in total`, ...rows].join('\n');
+      };
+      log.info(
+        [
+          'CANOPY git activity',
+          section('Last 10 minutes', 10 * 60_000),
+          section('Since start'),
+          `VS Code Git integration (canopy.useBuiltinGit): ${manager.builtin?.enabled ? 'on' : 'off'}; ${fromBuiltin} of ${loaded} loaded repositories are read from VS Code's Git instead of running git status.`
+        ].join('\n')
+      );
+      log.show();
+    }),
 
     // --- view commands ----------------------------------------------------------
     reg('refresh', async () => {

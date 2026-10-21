@@ -4,3 +4,4 @@ out/
 *.vsix
 demo-canopy/
 .screenshots/
+bench-results.json

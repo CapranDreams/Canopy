@@ -243,9 +243,13 @@
       msgRoot = r.root;
     }
     if (changed.includes('graph')) {
+      // A new shell: size the spacer first, or restoring the scroll position would be clamped to the top.
+      windowKey = '';
+      renderGraphWindow();
       const rows = /** @type {HTMLElement|null} */ (app.querySelector('.rows'));
       if (rows) rows.scrollTop = scroll;
     }
+    renderGraphWindow();
     if (revealFiles) {
       revealFiles = false;
       /** @type {HTMLElement|null} */ (app.querySelector('.cfiles'))?.scrollIntoView({ block: 'nearest' });
@@ -258,7 +262,7 @@
       measuring = false;
       return;
     }
-    post({ type: 'rendered', rows: state.graph.rows.length, files: r.staged.length + r.unstaged.length + r.conflicts.length });
+    post({ type: 'rendered', rows: state.graph.rows.length, drawn: app.querySelectorAll('.vwin .row').length, files: r.staged.length + r.unstaged.length + r.conflicts.length });
   }
 
   function toolbar(r) {
@@ -420,28 +424,95 @@
       .join('')}</div>`;
   }
 
+  /**
+   * The graph card is a fixed shell; its rows are drawn by renderGraphWindow(), which builds only the rows in
+   * view (plus a margin) inside a spacer as tall as the whole list. Scrolling, selecting a commit or a new graph
+   * redraws those ~50 rows; nothing else in the panel is touched, and the cost no longer grows with history.
+   */
   function graphCard() {
     if (view === 'stats') return statsCard();
     const g = state.graph;
     const scopes = [['all', 'All branches'], ['local', 'Local'], ['current', 'Current']];
-    const rows = g.rows
-      .map((row) => {
-        const refs = row.refs.map((ref) => `<span class="ref ${esc(ref.type)}">${esc(ref.name)}</span>`).join('');
-        const subj = row.wip ? `${state.repo.operation ? esc(state.repo.operation) + ' in progress · ' : ''}Uncommitted changes` : esc(row.subject);
-        return `<div class="row${row.wip ? ' wip' : ''}${row.head ? ' head' : ''}${selectedSha === row.hash ? ' sel' : ''}" data-sha="${esc(row.hash)}" role="listitem" tabindex="-1">
-          ${laneSvg(row, g.width)}
-          <span class="subj">${refs}<span class="txt">${subj}</span></span>
-          <span class="who">${esc(row.author)}</span><span class="when">${row.time ? ago(row.time * 1000) : ''}</span><span class="sha">${esc(row.short)}</span></div>${selectedSha === row.hash ? filesBlock(row, g.width) : ''}`;
-      })
-      .join('');
     return `<section class="card graph" aria-label="Commit graph">
       <div class="graph-h">${viewTabs()}
         <div class="seg" role="group" aria-label="Branches shown">${scopes.map(([v, l]) => `<button class="${state.scope === v ? 'on' : ''}" data-scope="${v}" aria-pressed="${state.scope === v}">${l}</button>`).join('')}</div>
         <span class="spacer"></span><span class="muted">Click a commit for its files · right-click for actions</span></div>
-      <div class="rows" role="list">${rows || '<div class="more-note">No commits yet.</div>'}</div>
+      <div class="rows" role="list"><div class="vpad"><div class="vwin"></div></div></div>
       ${g.truncated ? `<div class="more-note">Showing the latest ${g.rows.length} commits (setting: canopy.graph.maxCommits).</div>` : ''}
     </section>`;
   }
+
+  function rowHtml(row, g) {
+    const refs = row.refs.map((ref) => `<span class="ref ${esc(ref.type)}">${esc(ref.name)}</span>`).join('');
+    const subj = row.wip ? `${state.repo.operation ? esc(state.repo.operation) + ' in progress · ' : ''}Uncommitted changes` : esc(row.subject);
+    return `<div class="row${row.wip ? ' wip' : ''}${row.head ? ' head' : ''}${selectedSha === row.hash ? ' sel' : ''}" data-sha="${esc(row.hash)}" role="listitem" tabindex="-1">
+          ${laneSvg(row, g.width)}
+          <span class="subj">${refs}<span class="txt">${subj}</span></span>
+          <span class="who">${esc(row.author)}</span><span class="when">${row.time ? ago(row.time * 1000) : ''}</span><span class="sha">${esc(row.short)}</span></div>${selectedSha === row.hash ? filesBlock(row, g.width) : ''}`;
+  }
+
+  /** Rows drawn above and below the visible ones, so fast scrolling rarely shows a gap. */
+  const OVERSCAN = 15;
+  /** Bumped whenever a new graph arrives; part of the window key. */
+  let graphVersion = 0;
+  /** Height of the open file list under the selected commit (measured after drawing it). */
+  let filesH = 0;
+  let windowKey = '';
+
+  /** What the selected commit's file list shows right now, so the window redraws when it loads. */
+  function filesKey() {
+    if (!selectedSha) return '';
+    if (selectedSha === '*') return 'wip:' + JSON.stringify([state.repo.staged, state.repo.unstaged, state.repo.conflicts, state.wipStats]);
+    const f = commitFiles[selectedSha];
+    return Array.isArray(f) ? 'n' + f.length : String((f && f.error) || f);
+  }
+
+  function renderGraphWindow() {
+    const rowsEl = /** @type {HTMLElement|null} */ (app.querySelector('.rows'));
+    const pad = /** @type {HTMLElement|null} */ (rowsEl && rowsEl.querySelector('.vpad'));
+    const win = /** @type {HTMLElement|null} */ (pad && pad.querySelector('.vwin'));
+    if (!rowsEl || !pad || !win || view !== 'graph' || !state) return;
+    const g = state.graph;
+    const n = g.rows.length;
+    if (!n) {
+      if (windowKey !== 'empty') win.innerHTML = '<div class="more-note">No commits yet.</div>';
+      pad.style.height = '';
+      windowKey = 'empty';
+      return;
+    }
+    const sel = selectedSha ? g.rows.findIndex((r) => r.hash === selectedSha) : -1;
+    const extra = sel >= 0 ? filesH : 0;
+    pad.style.height = n * ROW_H + extra + 'px';
+    const top = rowsEl.scrollTop;
+    const first = sel < 0 || top < (sel + 1) * ROW_H ? Math.floor(top / ROW_H) : Math.max(sel + 1, Math.floor((top - extra) / ROW_H));
+    const visible = Math.ceil((rowsEl.clientHeight || 600) / ROW_H);
+    const start = Math.max(0, Math.min(first, n - 1) - OVERSCAN);
+    const end = Math.min(n, first + visible + OVERSCAN);
+    const key = [graphVersion, start, end, selectedSha, filesKey(), state.repo.operation].join('|');
+    if (key === windowKey) return;
+    windowKey = key;
+    win.style.transform = `translateY(${start * ROW_H + (sel >= 0 && sel < start ? extra : 0)}px)`;
+    win.innerHTML = g.rows.slice(start, end).map((row) => rowHtml(row, g)).join('');
+    const fb = /** @type {HTMLElement|null} */ (win.querySelector('.cfiles'));
+    if (fb && fb.offsetHeight !== filesH) {
+      filesH = fb.offsetHeight;
+      pad.style.height = n * ROW_H + filesH + 'px';
+    }
+  }
+
+  // Scroll events do not bubble; listen in the capture phase so the (sometimes replaced) .rows element is covered.
+  let scrollFrame = 0;
+  app.addEventListener(
+    'scroll',
+    (e) => {
+      if (!(/** @type {HTMLElement} */ (e.target).classList?.contains('rows')) || scrollFrame) return;
+      scrollFrame = requestAnimationFrame(() => {
+        scrollFrame = 0;
+        renderGraphWindow();
+      });
+    },
+    true
+  );
 
   /** Attaches line counts from state.wipStats[which] ('head' | 'staged' | 'unstaged') to a file list. */
   function withStats(files, which) {
@@ -984,7 +1055,14 @@
         stats.owners = null;
         stats.folder = null;
         stats.key = '';
+        filesH = 0;
       }
+      // The graph is sent only when it changed; otherwise keep the one already shown.
+      if (m.graph === undefined) {
+        // Nothing to keep yet (e.g. this view was reloaded): ask for a full state, graph included.
+        if (!state) return post({ type: 'ready' });
+        m.graph = state.graph;
+      } else graphVersion++;
       state = m;
       ensureStats();
       render();

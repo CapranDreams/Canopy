@@ -21,6 +21,16 @@ export class Repo {
   lastFetch = 0;
   /** Working tree of the repository this one is a submodule of, if any. */
   superRoot: string | undefined;
+  /**
+   * Key of the repository whose .gitmodules declared this one, when it was found that way (not by scanning).
+   * Such submodules are opt-in rows: not in Fetch All, totals or profiles.
+   */
+  declaredBy: string | undefined;
+  /** Not read yet: a declared submodule stays unloaded (no git, no watchers) until its parent is expanded. */
+  lazy = false;
+  /** Submodule paths from .gitmodules, and that file's mtime when read. */
+  submodulePaths: string[] = [];
+  gitmodulesTime = 0;
   private signature = '';
   /** mtime of the repository's config file when remotes were last read. */
   private configTime = 0;
@@ -110,32 +120,31 @@ export class Repo {
    * Re-reads status. Returns true when anything visible changed. `priority` skips the status queue (use it for
    * refreshes the user is waiting on, e.g. right after their own command). Usually one git process: the last
    * commit time is re-read only when HEAD moved, and remotes only when the repository's config file changed.
+   * `provided` (status and remotes from VS Code's built-in Git) replaces `git status` and `git remote`, so a
+   * refresh then usually runs no git process at all.
    */
-  async refresh(priority = false): Promise<boolean> {
+  async refresh(priority = false, provided?: { status: StatusInfo; remotes: Map<string, string> }): Promise<boolean> {
     const ro = { readOnly: true, priority };
     try {
-      if (!this.gitDir) {
-        const out = await this.git(['rev-parse', '--absolute-git-dir', '--git-common-dir'], ro);
-        const [gitDir, common] = out.split(/\r?\n/);
-        this.gitDir = gitDir.trim();
-        this.commonDir = path.resolve(this.root, common.trim());
-        // Empty outside a submodule (worktrees and ordinary repositories print nothing).
-        const sup = (await this.git(['rev-parse', '--show-superproject-working-tree'], ro).catch(() => '')).trim();
-        this.superRoot = sup ? path.resolve(sup) : undefined;
-      }
-      const configTime = await mtime(path.join(this.commonDir ?? this.gitDir, 'config'));
+      if (!this.gitDir) await this.locateGitDir(ro);
+      const gitDir = this.gitDir!;
+      const configTime = await mtime(path.join(this.commonDir ?? gitDir, 'config'));
       const [statusOut, remoteOut, operation, fetchHead] = await Promise.all([
-        this.git(['status', '--porcelain=v2', '--branch', '-z'], ro),
-        configTime !== this.configTime || !configTime ? this.git(['remote', '-v'], ro).catch(() => undefined) : Promise.resolve(undefined),
+        provided ? Promise.resolve('') : this.git(['status', '--porcelain=v2', '--branch', '-z'], ro),
+        provided || (configTime === this.configTime && configTime) ? Promise.resolve(undefined) : this.git(['remote', '-v'], ro).catch(() => undefined),
         this.detectOperation(),
         this.fetchHeadTime()
       ]);
-      const status = parseStatusV2(statusOut);
+      const status = provided ? provided.status : parseStatusV2(statusOut);
       if (status.oid !== this.status?.oid || !this.lastCommitTime) {
         this.lastCommitTime = status.oid ? Number((await this.git(['log', '-1', '--format=%ct'], ro).catch(() => '')).trim()) || 0 : 0;
       }
       this.status = status;
-      if (remoteOut !== undefined) {
+      if (provided) {
+        // Remotes as of this config file; CANOPY's own next read reruns `git remote` only if the file changes.
+        this.remotes = provided.remotes;
+        this.configTime = configTime;
+      } else if (remoteOut !== undefined) {
         this.remotes = parseRemotes(remoteOut);
         this.configTime = configTime;
       }
@@ -150,6 +159,26 @@ export class Repo {
     const changed = sig !== this.signature;
     this.signature = sig;
     return changed;
+  }
+
+  /**
+   * Finds the git directory. An ordinary repository (a `.git` folder) needs no git process; a `.git` file
+   * (submodule or worktree) is resolved by one `rev-parse`, which also names the superproject.
+   */
+  private async locateGitDir(ro: Partial<RunOptions>): Promise<void> {
+    const dotGit = path.join(this.root, '.git');
+    const isDir = await fs.promises.stat(dotGit).then((s) => s.isDirectory(), () => false);
+    if (isDir && !(await exists(path.join(dotGit, 'commondir')))) {
+      this.gitDir = dotGit;
+      this.commonDir = dotGit;
+      return;
+    }
+    // The superproject line is printed only inside a submodule.
+    const out = await this.git(['rev-parse', '--absolute-git-dir', '--git-common-dir', '--show-superproject-working-tree'], ro);
+    const [gitDir, common, sup] = out.split(/\r?\n/).map((l) => l.trim());
+    this.gitDir = gitDir;
+    this.commonDir = path.resolve(this.root, common);
+    this.superRoot = sup ? path.resolve(sup) : undefined;
   }
 
   private async detectOperation(): Promise<OperationKind | null> {

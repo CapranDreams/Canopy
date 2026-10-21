@@ -5,6 +5,8 @@ import { GitRunner } from './git/runner';
 import { registerGitContent } from './gitContent';
 import { Log } from './log';
 import { RepoManager } from './manager';
+import { BuiltinGit } from './builtinGit';
+import { maybeSuggestOpenEditors } from './gitAdvice';
 import { DetailPanel } from './panels/detailPanel';
 import { ProfilesPanel } from './panels/profilesPanel';
 import { Profiles } from './profiles';
@@ -29,6 +31,7 @@ export interface CanopyApi {
   manager: RepoManager;
   tree: RepoTree;
   store: Store;
+  state: ViewState;
   ops: GitOps;
   profiles: Profiles;
   detail: DetailPanel;
@@ -36,6 +39,7 @@ export interface CanopyApi {
   gitlab: GitLabService;
   github: GitHubService;
   forge: ForgeHub;
+  builtin: BuiltinGit;
 }
 
 export async function activate(ctx: vscode.ExtensionContext): Promise<CanopyApi> {
@@ -44,7 +48,8 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<CanopyApi>
   const runner = new GitRunner(gitPath(), cfg.get<number>('maxConcurrentGit', 6), (line) => log.git(line));
   const store = new Store(ctx);
   const state = new ViewState(ctx.workspaceState);
-  const manager = new RepoManager(runner, store, log);
+  const builtin = new BuiltinGit(log);
+  const manager = new RepoManager(runner, store, log, builtin);
   const tree = new RepoTree(manager, store, state);
   manager.visibleForAutoFetch = () => tree.visibleRepos();
   const ops = new GitOps(manager, log);
@@ -72,6 +77,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<CanopyApi>
     log,
     store,
     state,
+    builtin,
     manager,
     tree,
     detail,
@@ -101,14 +107,14 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<CanopyApi>
     void vscode.window.showErrorMessage(`CANOPY could not run Git ("${gitPath()}"). Install Git or set canopy.gitPath.`, 'Open Settings').then((a) => {
       if (a) void vscode.commands.executeCommand('workbench.action.openSettings', 'canopy.gitPath');
     });
-    return { manager, tree, store, ops, profiles, detail, profilesPanel, gitlab, github, forge };
+    return { manager, tree, store, state, ops, profiles, detail, profilesPanel, gitlab, github, forge, builtin };
   }
-  void manager.discover();
+  void manager.discover().then(() => maybeSuggestOpenEditors(ctx, manager, log));
   if (!ctx.globalState.get('canopy.welcomed') && ctx.extensionMode !== vscode.ExtensionMode.Test) {
     void ctx.globalState.update('canopy.welcomed', true);
     void vscode.commands.executeCommand('workbench.action.openWalkthrough', `${ctx.extension.id}#canopy.getStarted`, false);
   }
-  return { manager, tree, store, ops, profiles, detail, profilesPanel, gitlab, github, forge };
+  return { manager, tree, store, state, ops, profiles, detail, profilesPanel, gitlab, github, forge, builtin };
 }
 
 export function deactivate(): void {}

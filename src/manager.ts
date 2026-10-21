@@ -4,11 +4,14 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { GitError, GitRunner } from './git/runner';
 import { credentialHosts } from './git/fetchErrors';
+import { parseGitmodulesPaths } from './git/parse';
 import { FetchMode, FetchOutcome, FetchScheduler } from './git/fetchScheduler';
 import { Repo } from './repo';
 import { Store } from './store';
 import { mapLimit } from './util/limit';
 import { Log } from './log';
+import { normalizeFsPath } from './util/fsPath';
+import type { BuiltinGit } from './builtinGit';
 
 /** Window focus re-reads status only when the last full refresh is older than this; Fetch All / Refresh are the explicit ways. */
 const FOCUS_REFRESH_MS = 30 * 60_000;
@@ -46,9 +49,21 @@ export class RepoManager implements vscode.Disposable {
   constructor(
     readonly runner: GitRunner,
     private readonly store: Store,
-    private readonly log: Log
+    private readonly log: Log,
+    /** VS Code's built-in Git, read instead of running `git status` for the repositories it has open. */
+    readonly builtin?: BuiltinGit
   ) {
     this.fetcher = new FetchScheduler(fetchAllConcurrency(), (line) => log.info(line));
+    if (builtin) {
+      this.disposables.push(
+        // The built-in extension re-read a repository: take its result (no git process of our own).
+        builtin.onDidChangeRepo((root) => {
+          const repo = this.findByRoot(root);
+          if (repo && !repo.lazy && repo.loaded && !repo.fetching) void this.refresh(repo);
+        }),
+        builtin.onDidChangeTracking(() => this.reconcileWatchers())
+      );
+    }
     this.disposables.push(
       this._onDidChange,
       this._onDidChangeFetching,
@@ -99,6 +114,8 @@ export class RepoManager implements vscode.Disposable {
     const norm = normalizeFsPath(fsPath);
     let best: Repo | undefined;
     for (const r of this.repos.values()) {
+      // An unloaded submodule is not refreshed; its parent (which shows it as modified) is.
+      if (r.lazy) continue;
       const root = normalizeFsPath(r.root);
       if ((norm === root || norm.startsWith(root + '/')) && (!best || root.length > normalizeFsPath(best.root).length)) best = r;
     }
@@ -158,9 +175,15 @@ export class RepoManager implements vscode.Disposable {
     }
 
     const byNorm = new Map([...found].map((r) => [normalizeFsPath(r), r]));
+    // Submodules declared in a kept repo's .gitmodules stay, though scanning did not find them.
+    const kept = (repo: Repo, depth = 0): boolean => {
+      if (byNorm.has(normalizeFsPath(repo.root))) return true;
+      const parent = repo.declaredBy ? this.repos.get(repo.declaredBy) : undefined;
+      return !!parent && depth < 20 && kept(parent, depth + 1);
+    };
     let changed = false;
     for (const [key, repo] of this.repos) {
-      if (!byNorm.has(normalizeFsPath(repo.root))) {
+      if (!kept(repo)) {
         this.repos.delete(key);
         this.byRoot = undefined;
         this.watchers.get(key)?.forEach((w) => w.dispose());
@@ -179,11 +202,76 @@ export class RepoManager implements vscode.Disposable {
     }
     if (changed) this._onDidChange.fire(undefined);
     this.log.info(`Discovery: ${this.repos.size} repositories (${added.length} new) from ${roots.size} scan roots.`);
-    await mapLimit(added, 8, async (repo) => {
-      await repo.refresh();
-      this.watch(repo);
-      this._onDidChange.fire(repo);
-    });
+    // No waiting for VS Code's Git here: measured, its first reads arrive seconds later, and rows would sit empty
+    // meanwhile. Repos it has already read are taken from it; the rest read their own status once.
+    await mapLimit(added, 8, (repo) => this.refresh(repo));
+  }
+
+  /** Repos read from VS Code's Git need no watchers of ours (its change events replace them), and vice versa. */
+  private reconcileWatchers(): void {
+    for (const repo of this.repos.values()) {
+      if (repo.lazy || !repo.gitDir) continue;
+      if (this.builtin?.isTracked(repo.root)) {
+        this.watchers.get(repo.key)?.forEach((w) => w.dispose());
+        this.watchers.delete(repo.key);
+      } else {
+        this.watch(repo);
+      }
+    }
+  }
+
+  /** How many loaded repositories are read from VS Code's built-in Git right now. */
+  builtinCount(): number {
+    return this.builtin?.countTracked(this.all.filter((r) => !r.lazy && r.loaded).map((r) => r.root)) ?? 0;
+  }
+
+  /**
+   * Registers the initialized submodules a repo's .gitmodules declares, as unloaded rows that cost nothing
+   * until expanded, and drops ones no longer declared. Reads .gitmodules only when its mtime changes.
+   */
+  private async syncSubmodules(repo: Repo): Promise<void> {
+    const file = path.join(repo.root, '.gitmodules');
+    let time = 0;
+    try {
+      time = (await fs.promises.stat(file)).mtimeMs;
+    } catch {
+      // No .gitmodules: no submodules.
+    }
+    if (time === repo.gitmodulesTime) return;
+    repo.gitmodulesTime = time;
+    repo.submodulePaths = time ? parseGitmodulesPaths(await fs.promises.readFile(file, 'utf8').catch(() => '')) : [];
+    const declared = new Set<string>();
+    let changed = false;
+    for (const rel of repo.submodulePaths) {
+      const root = path.resolve(repo.root, rel);
+      declared.add(normalizeFsPath(root));
+      if (this.findByRoot(root) || !(await isRepoRoot(root))) continue; // already tracked, or not initialized
+      const sub = new Repo(root, this.store.keyFor(root), this.runner);
+      sub.declaredBy = repo.key;
+      sub.superRoot = repo.root;
+      sub.lazy = true;
+      this.repos.set(sub.key, sub);
+      this.byRoot = undefined;
+      changed = true;
+    }
+    for (const [key, r] of this.repos) {
+      if (r.declaredBy === repo.key && !declared.has(normalizeFsPath(r.root))) {
+        this.repos.delete(key);
+        this.byRoot = undefined;
+        this.watchers.get(key)?.forEach((w) => w.dispose());
+        this.watchers.delete(key);
+        changed = true;
+      }
+    }
+    if (changed) this._onDidChange.fire(undefined);
+  }
+
+  /** First read of an unloaded submodule (its parent was expanded): status, watchers, and its own submodules. */
+  async ensureLoaded(repo: Repo): Promise<void> {
+    if (!repo.lazy) return;
+    repo.lazy = false;
+    await this.refresh(repo, true);
+    this._onDidChange.fire(repo);
   }
 
   async addRepositories(roots: string[]): Promise<Repo[]> {
@@ -199,7 +287,7 @@ export class RepoManager implements vscode.Disposable {
   }
 
   private watch(repo: Repo): void {
-    if (this.watchers.has(repo.key) || !repo.gitDir) return;
+    if (this.watchers.has(repo.key) || !repo.gitDir || this.builtin?.isTracked(repo.root)) return;
     const list: vscode.Disposable[] = [];
     const add = (dir: string, glob: string) => {
       const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(dir), glob));
@@ -232,7 +320,8 @@ export class RepoManager implements vscode.Disposable {
   private touchPath(uri: vscode.Uri): void {
     if (uri.scheme !== 'file') return;
     const repo = this.findContaining(uri.fsPath);
-    if (repo) this.scheduleRefresh(repo);
+    // VS Code's Git re-reads the repositories it has open after a save and tells us (onDidChangeRepo).
+    if (repo && !this.builtin?.isTracked(repo.root)) this.scheduleRefresh(repo);
   }
 
   scheduleRefresh(repo: Repo, delay = 400): void {
@@ -249,14 +338,24 @@ export class RepoManager implements vscode.Disposable {
 
   /** Re-reads one repo. `priority` skips the status queue; use it when the user is waiting on the result. */
   async refresh(repo: Repo, priority = false): Promise<void> {
+    if (repo.lazy) return;
     const wasLoaded = !!repo.gitDir;
-    if (await repo.refresh(priority)) this._onDidChange.fire(repo);
+    // Background refreshes take VS Code's Git result when it has one. A refresh the user is waiting on (right
+    // after their own command) reads status itself, since VS Code's Git may not have caught up yet. Repos with
+    // submodules read it themselves too: only porcelain v2 says whether a submodule's commit moved.
+    const provided = priority || repo.submodulePaths.length ? undefined : this.builtin?.read(repo.root);
+    if (await repo.refresh(priority, provided)) this._onDidChange.fire(repo);
     if (!wasLoaded) this.watch(repo);
+    await this.syncSubmodules(repo);
   }
 
   async refreshAll(): Promise<void> {
     this.lastRefreshAll = Date.now();
-    await mapLimit(this.all, 8, (r) => this.refresh(r));
+    await mapLimit(
+      this.all.filter((r) => !r.lazy),
+      8,
+      (r) => this.refresh(r)
+    );
   }
 
   private startTimers(): void {
@@ -403,10 +502,7 @@ export class RepoManager implements vscode.Disposable {
   }
 }
 
-export function normalizeFsPath(p: string): string {
-  const n = path.resolve(p).replace(/\\/g, '/').replace(/\/+$/, '');
-  return process.platform === 'win32' || process.platform === 'darwin' ? n.toLowerCase() : n;
-}
+export { normalizeFsPath };
 
 function isInside(child: string, parent: string): boolean {
   const c = normalizeFsPath(child);

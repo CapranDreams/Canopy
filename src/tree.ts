@@ -67,7 +67,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   readonly dropMimeTypes = [MIME];
   private readonly _onDidChangeTreeData = new vscode.EventEmitter<Node | undefined>();
   readonly onDidChangeTreeData = this._onDidChangeTreeData.event;
-  private readonly _onDidChangeFileDecorations = new vscode.EventEmitter<undefined>();
+  private readonly _onDidChangeFileDecorations = new vscode.EventEmitter<vscode.Uri | vscode.Uri[] | undefined>();
   readonly onDidChangeFileDecorations = this._onDidChangeFileDecorations.event;
   readonly view: vscode.TreeView<Node>;
   private readonly disposables: vscode.Disposable[] = [];
@@ -77,6 +77,17 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   private forgeService: ForgeHub | undefined;
   /** Submodules by parent repo key; rebuilt after every refresh. */
   private childMap: Map<string, Repo[]> | undefined;
+  /** factsOf results until the next change (see factsOf). */
+  private readonly factsCache = new Map<string, RepoFacts>();
+  /** Repos changed since the last redraw, and whether something needs the whole tree redrawn. */
+  private readonly pendingRepos = new Set<Repo>();
+  private pendingFull = false;
+  /** Where each repo sits (filter, group, sort key, smart folders, parent) and its counts, as of the last redraw. */
+  private readonly placement = new Map<string, string>();
+  private readonly counts = new Map<string, string>();
+  /** Node objects by tree item id: VS Code redraws a single row only when given the very object it was handed. */
+  private readonly nodes = new Map<string, Node>();
+  private readonly smartPredicates = new Map<string, Predicate | null>();
 
   constructor(
     private readonly manager: RepoManager,
@@ -96,7 +107,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
       this._onDidChangeTreeData,
       this._onDidChangeFileDecorations,
       vscode.window.registerFileDecorationProvider(this),
-      manager.onDidChange(() => this.scheduleRefresh()),
+      manager.onDidChange((repo) => (repo ? this.onRepoChanged(repo) : this.scheduleRefresh())),
       store.onDidChangeLayout(() => {
         this.layout = store.layout;
         this.scheduleRefresh();
@@ -122,7 +133,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
 
   set forge(service: ForgeHub) {
     this.forgeService = service;
-    this.disposables.push(service.onDidChange(() => this.scheduleRefresh()));
+    this.disposables.push(service.onDidChange((repo) => (repo ? this.onRepoChanged(repo) : this.scheduleRefresh())));
   }
 
   provideFileDecoration(uri: vscode.Uri): vscode.FileDecoration | undefined {
@@ -146,32 +157,159 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     void vscode.commands.executeCommand('setContext', 'canopy.filtered', this.state.isFiltered);
   }
 
+  /** Something structural changed (layout, filter, the set of repos): redraw the whole tree. */
   private scheduleRefresh(): void {
+    // Drop cached facts at once, so commands run before the redraw already see the change.
+    this.factsCache.clear();
+    this.childMap = undefined;
+    this.pendingFull = true;
+    this.scheduleFlush();
+  }
+
+  /** One repo changed: usually only its row is redrawn (see flush). */
+  private onRepoChanged(repo: Repo): void {
+    this.factsCache.delete(repo.key);
+    // A submodule's facts depend on its parent (moved marker, folder).
+    for (const sub of this.submodulesOf(repo)) this.factsCache.delete(sub.key);
+    this.pendingRepos.add(repo);
+    this.scheduleFlush();
+  }
+
+  private scheduleFlush(): void {
     if (this.refreshTimer) return;
-    this.refreshTimer = setTimeout(() => {
-      this.refreshTimer = undefined;
-      this.childMap = undefined;
-      this._onDidChangeTreeData.fire(undefined);
-      this._onDidChangeFileDecorations.fire(undefined);
+    // Batch harder while fetches stream in, so a Fetch All does not redraw a dozen times a second.
+    this.refreshTimer = setTimeout(() => this.flush(), this.manager.fetchingCount ? 250 : 80);
+  }
+
+  private flush(): void {
+    this.refreshTimer = undefined;
+    const repos = [...this.pendingRepos];
+    this.pendingRepos.clear();
+    // Many rows at once: one full redraw is cheaper than many single ones.
+    if (!this.pendingFull && repos.length <= 20 && repos.every((r) => this.placementUnchanged(r))) {
+      this.redrawRows(repos);
       this.updateChrome();
-    }, 80);
+      return;
+    }
+    this.refresh();
   }
 
   refresh(): void {
+    this.pendingFull = false;
+    this.pendingRepos.clear();
+    this.factsCache.clear();
     this.childMap = undefined;
+    this.nodes.clear();
     this._onDidChangeTreeData.fire(undefined);
     this._onDidChangeFileDecorations.fire(undefined);
+    this.snapshotPlacements();
     this.updateChrome();
+  }
+
+  private placementOf(repo: Repo): string {
+    const f = this.factsOf(repo);
+    const sort = this.state.sort;
+    const sortKey = sort === 'recent' ? f.lastCommitTime : sort === 'changes' ? f.changed : '';
+    const grouped = this.state.groupBy === 'status' || sort === 'attention';
+    const smart: string[] = [];
+    for (const { folder } of walkFolders(this.layout.folders)) {
+      if (folder.query === undefined) continue;
+      let pred = this.smartPredicates.get(folder.query);
+      if (pred === undefined) {
+        try {
+          pred = compileQuery(folder.query);
+        } catch {
+          pred = null;
+        }
+        this.smartPredicates.set(folder.query, pred);
+      }
+      if (pred && pred(f)) smart.push(folder.id);
+    }
+    return JSON.stringify([this.passesFilter(repo), grouped ? attentionOf(f) : '', sortKey, smart, repo.superRoot ?? '', this.visibleSubmodules(repo).length, this.isHidden(repo), repo.lazy]);
+  }
+
+  private countsOf(repo: Repo): string {
+    const f = this.factsOf(repo);
+    return [f.conflicts, f.behind, f.changed, f.ahead].join(',');
+  }
+
+  private snapshotPlacements(): void {
+    this.placement.clear();
+    this.counts.clear();
+    for (const r of this.manager.all) {
+      this.placement.set(r.key, this.placementOf(r));
+      this.counts.set(r.key, this.countsOf(r));
+    }
+  }
+
+  /** Same place in the tree as at the last redraw (also checked for the parent, whose visibility can follow). */
+  private placementUnchanged(repo: Repo): boolean {
+    const now = this.placementOf(repo);
+    if (now !== this.placement.get(repo.key)) return false;
+    const parent = this.parentOf(repo);
+    return !parent || this.placementOf(parent) === this.placement.get(parent.key);
+  }
+
+  /** Redraws the rows of these repos, plus the folders above a row whose counts changed (their totals). */
+  private redrawRows(repos: Repo[]): void {
+    const targets = new Set<Node>();
+    const uris: vscode.Uri[] = [];
+    for (const repo of repos) {
+      const countsChanged = this.countsOf(repo) !== this.counts.get(repo.key);
+      this.counts.set(repo.key, this.countsOf(repo));
+      uris.push(this.repoUri(repo));
+      for (const node of this.nodes.values()) {
+        if (node.kind !== 'repo' || node.repo !== repo) continue;
+        targets.add(node);
+        if (!countsChanged) continue;
+        for (let p = this.getParent(node), depth = 0; p && depth < 30; p = this.getParent(p), depth++) targets.add(p);
+      }
+    }
+    for (const node of targets) this._onDidChangeTreeData.fire(node);
+    if (uris.length) this._onDidChangeFileDecorations.fire(uris);
+  }
+
+  private repoUri(repo: Repo): vscode.Uri {
+    return vscode.Uri.file(repo.root).with({ scheme: REPO_SCHEME, query: repo.key });
+  }
+
+  private nodeId(n: Node): string {
+    return n.kind === 'repo' ? n.parent + '/' + n.repo.key : n.kind === 'folder' ? 'folder:' + n.folder.id : n.kind === 'unsorted' ? UNSORTED_ID : 'group:' + n.attention;
+  }
+
+  /** The one node object for this tree item (updated in place), so a later single-row redraw can name it. */
+  private intern<T extends Node>(n: T): T {
+    const id = this.nodeId(n);
+    const existing = this.nodes.get(id) as T | undefined;
+    if (existing) return Object.assign(existing, n);
+    this.nodes.set(id, n);
+    return n;
   }
 
   // --- visibility ---------------------------------------------------------
 
-  folderNamesOf(repo: Repo): string[] {
+  /** The repo's CANOPY folder path; a submodule that is not filed itself is in its parent's folder. */
+  folderNamesOf(repo: Repo, depth = 0): string[] {
     const f = folderOfRepo(this.layout, repo.key);
-    return f ? folderPath(this.layout, f.id) : [];
+    if (f) return folderPath(this.layout, f.id);
+    const parent = depth < 20 ? this.parentOf(repo) : undefined;
+    return parent ? this.folderNamesOf(parent, depth + 1) : [];
   }
 
+  /**
+   * Facts for filtering, sorting and badges. A redraw asks for each repo's facts many times (every sort
+   * comparison, every folder count), so they are cached until the next change of any repo, layout or filter.
+   */
   factsOf(repo: Repo): RepoFacts {
+    let f = this.factsCache.get(repo.key);
+    if (!f) {
+      f = this.computeFacts(repo);
+      this.factsCache.set(repo.key, f);
+    }
+    return f;
+  }
+
+  private computeFacts(repo: Repo): RepoFacts {
     const f = repo.facts(this.folderNamesOf(repo));
     if (repo.superRoot) f.submoduleMoved = this.isMoved(repo);
     const info = this.forgeService?.info(repo);
@@ -190,14 +328,9 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     return repo.superRoot ? this.manager.findByRoot(repo.superRoot) : undefined;
   }
 
-  /** Submodules nest under their parent, except when the view is grouped by status (that list stays flat). */
-  private get nesting(): boolean {
-    return this.state.groupBy !== 'status' || this.state.editMode;
-  }
-
-  /** True when the repo is shown under its parent instead of in a folder. */
+  /** True when the repo is shown under its parent repo (always, for submodules) instead of in a folder or group. */
   private isNested(repo: Repo): boolean {
-    return this.nesting && !!this.parentOf(repo);
+    return !!this.parentOf(repo);
   }
 
   private submodulesOf(repo: Repo): Repo[] {
@@ -213,7 +346,6 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
 
   /** Submodules to show under a repo (filters apply), in view order. */
   private visibleSubmodules(repo: Repo): Repo[] {
-    if (!this.nesting) return [];
     return this.submodulesOf(repo).filter((r) => this.passesFilter(r)).sort(this.repoComparator());
   }
 
@@ -241,21 +373,26 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     return this.layout.hidden.includes(repo.key);
   }
 
-  /** Repos not hidden in the layout (filters ignored). */
+  /**
+   * Repos not hidden in the layout (filters ignored): what Fetch All, totals, profiles and hosted-Git status
+   * cover. Submodules found through a parent's .gitmodules are left out; act on them from their own row.
+   */
   visibleRepos(): Repo[] {
-    return this.manager.all.filter((r) => !this.isHidden(r));
+    return this.manager.all.filter((r) => !this.isHidden(r) && !r.declaredBy);
   }
 
-  /** Passes the filters itself, or (when submodules nest under it) because one of them does. */
-  private passesFilter(repo: Repo): boolean {
+  /** Passes the filters itself, or because one of its submodules does. */
+  private passesFilter(repo: Repo, depth = 0): boolean {
     if (this.state.editMode) return true;
     if (this.isHidden(repo)) return false;
-    return this.passesOwnFilter(repo) || (this.nesting && this.submodulesOf(repo).some((s) => this.passesFilter(s)));
+    return this.passesOwnFilter(repo) || (depth < 20 && this.submodulesOf(repo).some((s) => this.passesFilter(s, depth + 1)));
   }
 
   private passesOwnFilter(repo: Repo): boolean {
     if (this.state.editMode) return true;
     if (this.isHidden(repo)) return false;
+    // An unloaded submodule has no status yet: only the text filter can apply.
+    if (repo.lazy) return this.state.filters.length || this.state.hideClean ? false : !this.filterPredicate || this.filterPredicate(this.factsOf(repo));
     const f = this.factsOf(repo);
     const att = attentionOf(f);
     if (this.state.hideClean && att === 'clean') return false;
@@ -272,6 +409,11 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   /** Repos shown in the view right now, in display order (used by Go to Repository). */
   shownRepos(): Repo[] {
     return this.manager.all.filter((r) => this.passesOwnFilter(r)).sort(this.repoComparator());
+  }
+
+  /** Shown repos that are not submodules (those appear under their parent). */
+  private topLevelShown(): Repo[] {
+    return this.shownRepos().filter((r) => !this.isNested(r));
   }
 
   private repoComparator(manualOrder?: string[]): (a: Repo, b: Repo) => number {
@@ -309,7 +451,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
       const top = this.unsortedRepos();
       return this.withSubmodules(top).filter((r) => top.includes(r) || this.passesOwnFilter(r));
     }
-    if (node.kind === 'group') return this.shownRepos().filter((r) => attentionOf(this.factsOf(r)) === node.attention);
+    if (node.kind === 'group') return this.topLevelShown().filter((r) => attentionOf(this.factsOf(r)) === node.attention);
     const out = new Map<string, Repo>();
     const visit = (f: LayoutFolder) => {
       this.reposInFolder(f).forEach((r) => out.set(r.key, r));
@@ -327,9 +469,13 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   // --- TreeDataProvider -----------------------------------------------------
 
   getChildren(element?: Node): Node[] {
+    return this.buildChildren(element).map((n) => this.intern(n));
+  }
+
+  private buildChildren(element?: Node): Node[] {
     if (!element) {
       if (this.state.groupBy === 'status' && !this.state.editMode) {
-        const shown = this.shownRepos();
+        const shown = this.topLevelShown();
         return ATTENTION_ORDER.filter((a) => shown.some((r) => attentionOf(this.factsOf(r)) === a)).map((attention) => ({ kind: 'group', attention }));
       }
       if (!this.layout.folders.length) return this.unsortedRepos().map((repo) => ({ kind: 'repo', repo, parent: UNSORTED_ID }));
@@ -344,18 +490,29 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     }
     if (element.kind === 'unsorted') return this.unsortedRepos().map((repo) => ({ kind: 'repo', repo, parent: UNSORTED_ID }));
     if (element.kind === 'group') return this.reposUnder(element).map((repo) => ({ kind: 'repo', repo, parent: 'group:' + element.attention }));
-    if (element.kind === 'repo') return this.visibleSubmodules(element.repo).map((repo) => ({ kind: 'repo', repo, parent: 'sub:' + element.repo.key }));
+    if (element.kind === 'repo') {
+      const subs = this.visibleSubmodules(element.repo);
+      // VS Code asks for children only when the row is expanded: that is when a submodule's status is first read.
+      for (const sub of subs) if (sub.lazy) void this.manager.ensureLoaded(sub);
+      return subs.map((repo) => ({ kind: 'repo', repo, parent: 'sub:' + element.repo.key }));
+    }
     return [];
   }
 
   /** The tree node a repo is shown as: under its parent repo when nested, else in its folder or Unsorted. */
   private nodeOf(repo: Repo): RepoNode {
-    const parent = this.nesting ? this.parentOf(repo) : undefined;
+    const parent = this.parentOf(repo);
     if (parent) return { kind: 'repo', repo, parent: 'sub:' + parent.key };
+    if (this.state.groupBy === 'status' && !this.state.editMode) return { kind: 'repo', repo, parent: 'group:' + attentionOf(this.factsOf(repo)) };
     return { kind: 'repo', repo, parent: folderOfRepo(this.layout, repo.key)?.id ?? UNSORTED_ID };
   }
 
   getParent(element: Node): Node | undefined {
+    const parent = this.buildParent(element);
+    return parent && this.intern(parent);
+  }
+
+  private buildParent(element: Node): Node | undefined {
     if (element.kind === 'folder') {
       if (!element.parentId) return undefined;
       for (const { folder, parent } of walkFolders(this.layout.folders)) if (folder.id === element.parentId) return { kind: 'folder', folder, parentId: parent?.id ?? null };
@@ -429,7 +586,11 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     const att = attentionOf(facts);
     const hidden = this.isHidden(r);
     const kids = this.visibleSubmodules(r).length;
-    const item = new vscode.TreeItem(r.name, kids ? this.collapsible('sub:' + r.key) : vscode.TreeItemCollapsibleState.None);
+    // Submodules are optional to view: a parent starts collapsed and remembers when it was expanded.
+    const item = new vscode.TreeItem(
+      r.name,
+      kids ? (this.state.collapsed.includes('subopen:' + r.key) ? vscode.TreeItemCollapsibleState.Expanded : vscode.TreeItemCollapsibleState.Collapsed) : vscode.TreeItemCollapsibleState.None
+    );
     item.id = node.parent + '/' + r.key;
     const badges = badgeText(facts);
     const info = this.forgeService?.info(r);
@@ -448,6 +609,7 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     }
     const flags = ['repo'];
     if (r.superRoot) flags.push('submodule');
+    if (r.detached) flags.push('detached');
     if (r.remotes.size) flags.push('remote');
     if (r.behind) flags.push('behind');
     if (r.ahead) flags.push('ahead');
@@ -461,13 +623,18 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
     if (info?.pipeline) flags.push('pipeline');
     if (info?.pipeline?.status === 'failed' || info?.pipeline?.status === 'canceled') flags.push('pipelinefailed');
     item.contextValue = flags.join(':');
-    item.tooltip = this.tooltip(r, facts);
-    item.resourceUri = vscode.Uri.file(r.root).with({ scheme: REPO_SCHEME, query: r.key });
+    item.resourceUri = this.repoUri(r);
     if (this.state.editMode) {
       item.checkboxState = hidden ? vscode.TreeItemCheckboxState.Unchecked : vscode.TreeItemCheckboxState.Checked;
     } else if (vscode.workspace.getConfiguration('canopy').get<boolean>('openDetailsOnClick', true)) {
       item.command = { command: 'canopy.openDetails', title: 'Open Details', arguments: [r, { preserveFocus: true }] };
     }
+    return item;
+  }
+
+  /** Tooltips are built when a row is hovered, not for every row on every redraw. */
+  resolveTreeItem(item: vscode.TreeItem, node: Node): vscode.TreeItem {
+    if (node.kind === 'repo' && !item.tooltip) item.tooltip = this.tooltip(node.repo, this.factsOf(node.repo));
     return item;
   }
 
@@ -550,7 +717,9 @@ export class RepoTree implements vscode.TreeDataProvider<Node>, vscode.TreeDragA
   }
 
   private async onExpand(node: Node, collapsed: boolean): Promise<void> {
-    const id = node.kind === 'folder' ? node.folder.id : node.kind === 'unsorted' ? UNSORTED_ID : node.kind === 'group' ? 'group:' + node.attention : node.kind === 'repo' ? 'sub:' + node.repo.key : undefined;
+    // Repo rows are stored when expanded (they default to collapsed); folders and groups when collapsed.
+    if (node.kind === 'repo') return this.state.setCollapsed('subopen:' + node.repo.key, !collapsed);
+    const id = node.kind === 'folder' ? node.folder.id : node.kind === 'unsorted' ? UNSORTED_ID : node.kind === 'group' ? 'group:' + node.attention : undefined;
     if (id) await this.state.setCollapsed(id, collapsed);
   }
 

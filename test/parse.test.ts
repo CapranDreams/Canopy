@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import * as assert from 'node:assert/strict';
-import { changedPathCount, parseBranches, parseDecorations, parseLog, parseNameStatusZ, parseNumstatZ, parseRemotes, parseStashes, parseStatusV2, parseWorktrees, withLineStats } from '../src/git/parse';
+import { changedPathCount, parseBranches, parseDecorations, parseLog, parseNameStatusZ, parseNumstatZ, parseRemotes, parseStashes, parseStatusV2, parseWorktrees, withLineStats, parseGitmodulesPaths } from '../src/git/parse';
 
 test('parseStatusV2: branch header, ahead/behind, all entry kinds', () => {
   const out = [
@@ -103,4 +103,21 @@ test('parseNumstatZ: counts, renames, binary files; withLineStats attaches them'
     { status: 'M', path: 'src/a b.ts', added: 3, deleted: 1 },
     { status: 'A', path: 'logo.png' }
   ]);
+});
+
+test('parseGitmodulesPaths: paths in order, quoted, deduplicated, unsafe ones dropped', () => {
+  const text = [
+    '[submodule "libs/a"]',
+    '\tpath = libs/a',
+    '\turl = https://example.com/a.git',
+    '[submodule "b"]',
+    '  path="vendor/b dir/"',
+    '[submodule "dup"]',
+    'path = libs/a',
+    '[submodule "evil"]',
+    'path = ../outside',
+    '[submodule "abs"]',
+    'path = /etc'
+  ].join('\n');
+  assert.deepEqual(parseGitmodulesPaths(text), ['libs/a', 'vendor/b dir']);
 });

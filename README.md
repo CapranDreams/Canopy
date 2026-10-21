@@ -46,7 +46,7 @@ Each row shows the repository, its branch, and badges:
 
 The most urgent state also shows as a colored badge at the right edge, and the repository name takes its color: failed pipeline (red `✕`), commits to push (blue `↑`), commits to pull (green `↓`), then uncommitted changes (yellow `●`). Change these colors in `workbench.colorCustomizations` with `canopy.pipelineFailedForeground`, `canopy.aheadForeground`, `canopy.behindForeground` and `canopy.changesForeground`.
 
-- **Submodules** appear nested under their parent repository with a teal submodule icon and their own branch and status. Hover any repository or submodule and click the branch icon to switch branches; a yellow `≠` means a submodule is at a different commit than its parent records.
+- **Submodules** listed in a repository's `.gitmodules` appear under it: expand the repository to see them, each with a teal submodule icon, the branch or commit it is on, and its own status. They cost nothing until you expand the parent, and they have the same buttons as any repository (fetch, pull, push, sync, switch branch, details); pull and push are hidden while a submodule is on a detached commit. A yellow `≠` means a submodule is at a different commit than its parent records. Submodules are acted on from their own row and are not part of **Fetch All**, totals or profiles.
 - **Sort** by attention, recent activity, most changes, alphabetical or your own order, from **Sort By…** or the **Filter** picker. **Group by status** to see Conflicts, Incoming, Local changes and Unpushed at a glance.
 - **Filter** by status, or with a query such as `is:dirty age<7d`.
 - **Fetch All** keeps the counts current (automatic background fetching is available as an opt-in setting). The activity bar badge and status bar show totals.
@@ -110,11 +110,13 @@ Use it for smart folders, filters and **Go to Repository…**.
 |---|---|
 | `is:conflict` `is:diverged` `is:behind` `is:ahead` `is:dirty` `is:clean` `is:detached` `is:unpublished` | repository status |
 | `pipeline:failed` `pipeline:running` `pipeline:success` `is:mr` (or `is:pr`) `is:draft` `is:mr-conflict` | GitLab and GitHub status |
-| `name:` `branch:` `path:` `folder:` (with `*` wildcards), `remote:` | names and locations |
+| a word or glob, e.g. `api` `api-*` `Platform/*` | the repository name or branch, any CANOPY folder it is in, or its folder path plus name |
+| `name:` `branch:` `path:` `folder:` (or `in:`, any folder level or a path like `Platform/Backend`), `repo:`, `remote:` | names and locations |
+| globs: `*` `?` `[abc]` `[!abc]` `{a,b}` | text without wildcards matches anywhere |
 | `behind>2` `changes>0` `age<7d` `age>3m` | counts and last-commit age |
 | `AND` (or a space), `OR`, `NOT` or `-term`, `( )` | combining terms |
 
-Example: `folder:Platform (is:behind OR pipeline:failed)`
+Examples: `folder:Platform (is:behind OR pipeline:failed)`, `Platform/*`, `*-{api,service} -in:Archive`
 
 ## Settings
 
@@ -135,6 +137,18 @@ Example: `folder:Platform (is:behind OR pipeline:failed)`
 | `canopy.maxConcurrentGit` | `6` | Status-reading Git processes run at once |
 
 All settings are listed under **CANOPY** in the Settings editor.
+
+### Performance tip: many repositories in one workspace
+
+VS Code's own Git extension opens every repository in your workspace folders (and their direct subfolders) and re-reads them on file changes. With many repositories that is most of the Git work on your machine. Measured with 90 repositories (`npm run bench`), setting `"git.autoRepositoryDetection": "openEditors"` (VS Code's Git then follows only the repositories of files you have open, while CANOPY keeps the overview of all of them) gave:
+
+| | VS Code default | `openEditors` |
+|---|---|---|
+| Git processes until every row is loaded | 1,085 (12.4 s) | 274 (5.3 s) |
+| Git processes for 20 file saves | 650 | 20 |
+| Fetch All | 906 processes, 12.7 s | 500 processes, 6.2 s |
+
+**CANOPY: Show Git Activity** shows how many git processes CANOPY itself has started.
 
 ## Privacy
 

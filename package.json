@@ -630,6 +630,11 @@
         "category": "CANOPY"
       },
       {
+        "command": "canopy.showGitActivity",
+        "title": "Show Git Activity",
+        "category": "CANOPY"
+      },
+      {
         "command": "canopy.moveToFolder",
         "title": "Move to Folder…",
         "category": "CANOPY"
@@ -957,17 +962,17 @@
         {
           "command": "canopy.pull",
           "group": "inline@2",
-          "when": "view == canopy.repos && viewItem =~ /^repo(?!.*:unpublished).*:remote/"
+          "when": "view == canopy.repos && viewItem =~ /^repo(?!.*:(unpublished|detached)).*:remote/"
         },
         {
           "command": "canopy.push",
           "group": "inline@3",
-          "when": "view == canopy.repos && viewItem =~ /^repo(?!.*:unpublished).*:remote/"
+          "when": "view == canopy.repos && viewItem =~ /^repo(?!.*:(unpublished|detached)).*:remote/"
         },
         {
           "command": "canopy.sync",
           "group": "inline@4",
-          "when": "view == canopy.repos && viewItem =~ /^repo.*:remote/"
+          "when": "view == canopy.repos && viewItem =~ /^repo(?!.*:detached).*:remote/"
         },
         {
           "command": "canopy.publishBranch",
@@ -1602,7 +1607,7 @@
         "canopy.scanNested": {
           "type": "boolean",
           "default": false,
-          "markdownDescription": "Look for repositories nested inside other repositories (submodules, vendored repos)."
+          "markdownDescription": "Also scan inside repositories for other nested repositories (vendored repos). Submodules declared in `.gitmodules` are found without this and appear under their parent when you expand it."
         },
         "canopy.autoFetch.intervalMinutes": {
           "type": "number",
@@ -1632,6 +1637,11 @@
           "default": 0,
           "minimum": 0,
           "markdownDescription": "Re-read local status of every repository every N seconds (minimum 10) as a fallback to file watching. `0` (the default) turns polling off: saves and changes in `.git` still update status, and **Refresh** re-reads everything on demand."
+        },
+        "canopy.useBuiltinGit": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Experimental. For repositories VS Code's own Git already has open, use its status instead of running `git status` a second time. Off by default: measured with 90 repositories, it saved only CANOPY's small share of git processes, and VS Code's Git sometimes reported a saved file late. CANOPY never asks VS Code's Git to open more repositories."
         },
         "canopy.maxConcurrentGit": {
           "type": "number",
@@ -1905,6 +1915,7 @@
     "test": "npm run compile && node --test \"out/test/**/*.test.js\"",
     "package": "npm run compile && vsce package --no-dependencies --no-rewrite-relative-links",
     "test:e2e": "npm run compile && node out/test/e2e/runE2e.js",
+    "bench": "npm run compile && node out/test/e2e/runBench.js",
     "demo": "node scripts/make-demo.mjs demo-canopy",
     "screenshots": "npm run compile && node scripts/screenshots/render.mjs demo-canopy"
   },

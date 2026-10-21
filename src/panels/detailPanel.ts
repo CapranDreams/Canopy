@@ -37,11 +37,14 @@ export class DetailPanel implements vscode.Disposable {
   private postTimer: NodeJS.Timeout | undefined;
   private graphKey = '';
   private graphCache: unknown;
+  /** Bumped whenever the graph is recomputed; the webview gets the graph only when this moved since it last did. */
+  private graphSerial = 0;
+  private sentGraphSerial = -1;
   /** Branches, stashes and line counts from the last post; reused while only activity or forge state changed. */
   private extras: { key: string; activity: number; stashes: Awaited<ReturnType<typeof listStashes>>; branchList: Awaited<ReturnType<typeof listBranches>>; wipStats: WipStats } | undefined;
   private forceExtras = false;
   /** Last render reported by the webview (used by tests and to surface script errors). */
-  lastRender: { rows: number; files: number } | undefined;
+  lastRender: { rows: number; drawn: number; files: number } | undefined;
   private forgeService: ForgeHub | undefined;
   private readonly stats = new StatsService();
   /** Shared profiles editor shown in the Profiles tab. */
@@ -96,6 +99,7 @@ export class DetailPanel implements vscode.Disposable {
         localResourceRoots: [vscode.Uri.joinPath(this.extensionUri, 'media')]
       });
       this.panel.iconPath = vscode.Uri.joinPath(this.extensionUri, 'media', 'canopy.svg');
+      this.sentGraphSerial = -1;
       this.panel.webview.html = webviewHtml(this.panel.webview, this.extensionUri, 'detail.js', 'CANOPY', ['profiles.js']);
       this.profilesView = this.profiles?.attachView((m) => void this.panel?.webview.postMessage({ type: 'profiles', msg: m }));
       this.panel.webview.onDidReceiveMessage((m) => this.onMessage(m).catch((e) => this.log.error(String(e))), undefined, this.disposables);
@@ -149,6 +153,8 @@ export class DetailPanel implements vscode.Disposable {
       local: branchList.filter((b) => !b.remote).map((b) => ({ name: b.name, time: b.time, current: b.current, upstream: b.upstream ?? null })),
       remote: branchList.filter((b) => b.remote).map((b) => ({ name: b.name, time: b.time }))
     };
+    const sendGraph = this.graphSerial !== this.sentGraphSerial;
+    this.sentGraphSerial = this.graphSerial;
     const folderNames = this.tree.folderNamesOf(r);
     const fs = this.forgeService?.state(r) ?? { kind: 'none' as const };
     const forge =
@@ -184,7 +190,8 @@ export class DetailPanel implements vscode.Disposable {
         conflicts: r.conflicts,
         forge
       },
-      graph,
+      // Unchanged graphs stay in the webview; re-sending 300 rows on every update was most of each message.
+      graph: sendGraph ? graph : undefined,
       wipStats: { head: Object.fromEntries(wipStats.head), staged: Object.fromEntries(wipStats.staged), unstaged: Object.fromEntries(wipStats.unstaged) }
     });
   }
@@ -207,6 +214,7 @@ export class DetailPanel implements vscode.Disposable {
       commits.unshift({ hash: '*', parents: [r.status.oid], refs: [], author: '', time: 0, subject: '' });
     }
     const { rows, width } = layoutGraph(commits);
+    this.graphSerial++;
     this.graphCache = {
       width,
       truncated: commits.length >= max,
@@ -229,9 +237,13 @@ export class DetailPanel implements vscode.Disposable {
 
   private async onMessage(m: { type: string; [k: string]: unknown }): Promise<void> {
     const r = this.repo;
-    if (m.type === 'ready') return this.schedulePost(0);
+    if (m.type === 'ready') {
+      // A fresh (or reloaded) webview has no graph yet.
+      this.sentGraphSerial = -1;
+      return this.schedulePost(0);
+    }
     if (m.type === 'rendered') {
-      this.lastRender = { rows: Number(m.rows), files: Number(m.files) };
+      this.lastRender = { rows: Number(m.rows), drawn: Number(m.drawn), files: Number(m.files) };
       return;
     }
     if (m.type === 'error') return this.log.error(`Details view script error: ${String(m.message)}`);

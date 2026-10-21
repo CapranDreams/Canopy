@@ -231,6 +231,18 @@ export function parseRemotes(out: string): Map<string, string> {
   return map;
 }
 
+/** Submodule paths declared in a .gitmodules file, in file order (forward slashes, deduplicated). */
+export function parseGitmodulesPaths(text: string): string[] {
+  const paths = new Set<string>();
+  for (const line of text.split(/\r?\n/)) {
+    const m = /^\s*path\s*=\s*(.+?)\s*$/.exec(line);
+    if (!m) continue;
+    const p = m[1].replace(/^"(.*)"$/, '$1').replace(/\\/g, '/').replace(/\/+$/, '');
+    if (p && !p.startsWith('/') && !p.split('/').includes('..')) paths.add(p);
+  }
+  return [...paths];
+}
+
 /** Parses `git diff-tree -r -z --name-status` (renames and copies carry the old path first). */
 export function parseNameStatusZ(out: string): FileEntry[] {
   const parts = out.split('\0');

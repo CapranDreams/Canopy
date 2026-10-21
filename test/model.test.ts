@@ -66,6 +66,32 @@ test('query language', () => {
   assert.match(validateQuery('(is:dirty') ?? '', /parenthesis/);
 });
 
+test('query language: globs over names and CANOPY folders', () => {
+  const api = facts({ name: 'api-gateway', folderNames: ['Platform', 'Backend'] });
+  const auth = facts({ name: 'auth-service', folderNames: ['Platform'] });
+  const web = facts({ name: 'web-app', folderNames: ['Frontend'] });
+  const loose = facts({ name: 'scratch' });
+  const all = [api, auth, web, loose];
+  const match = (q: string) => all.filter((f) => compileQuery(q)(f)).map((f) => f.name);
+  // Bare globs: repo name, or any folder the repo lives in.
+  assert.deepEqual(match('api-*'), ['api-gateway']);
+  assert.deepEqual(match('plat*'), ['api-gateway', 'auth-service']);
+  assert.deepEqual(match('Platform/*'), ['api-gateway', 'auth-service']);
+  assert.deepEqual(match('Platform/Backend/*'), ['api-gateway']);
+  assert.deepEqual(match('*-{app,service}'), ['auth-service', 'web-app']);
+  assert.deepEqual(match('?eb-app'), ['web-app']);
+  assert.deepEqual(match('[aw]*'), ['api-gateway', 'auth-service', 'web-app']);
+  assert.deepEqual(match('name:[!aw]*'), ['scratch']);
+  // Plain text still matches anywhere.
+  assert.deepEqual(match('front'), ['web-app']);
+  // folder: / in: look only at folders (any level, or a path); repo: is the bare-word match spelled out.
+  assert.deepEqual(match('folder:backend'), ['api-gateway']);
+  assert.deepEqual(match('in:Platform/B*'), ['api-gateway']);
+  assert.deepEqual(match('folder:platform -name:auth*'), ['api-gateway']);
+  assert.deepEqual(match('repo:web*'), ['web-app']);
+  assert.match(validateQuery('name:[z-a]') ?? '', /Invalid pattern/);
+});
+
 test('attention ordering', () => {
   const list = [facts({ name: 'clean' }), facts({ name: 'ahead', ahead: 1 }), facts({ name: 'behind', behind: 1 }), facts({ name: 'conf', conflicts: 1 }), facts({ name: 'div', behind: 1, ahead: 1 }), facts({ name: 'dirty', changed: 3 })];
   assert.deepEqual(list.sort(compareRepos('attention')).map((r) => r.name), ['conf', 'div', 'behind', 'dirty', 'ahead', 'clean']);

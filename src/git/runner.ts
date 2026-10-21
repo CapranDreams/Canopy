@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import * as os from 'node:os';
 import { Limiter } from '../util/limit';
+import { GitActivity } from './activity';
 
 export class GitError extends Error {
   constructor(
@@ -23,7 +24,11 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   /** Bypass the concurrency limiter (for user-initiated, interactive operations). */
   priority?: boolean;
-  /** Run git (and the ssh / credential helpers it starts, which inherit it) at below-normal CPU priority. */
+  /**
+   * Run git (and the ssh / credential helpers it starts, which inherit it) at below-normal CPU priority, so it
+   * yields to the editor and whatever else the user is doing. Defaults to true for queued (non-priority) runs:
+   * status reads, discovery and other background work. Work the user is waiting on runs at normal priority.
+   */
   background?: boolean;
 }
 
@@ -33,6 +38,8 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 
 export class GitRunner {
   private readonly limiter: Limiter;
+  /** Every git process started, for "CANOPY: Show Git Activity". */
+  readonly activity = new GitActivity();
 
   constructor(
     private gitPath: string,
@@ -72,7 +79,7 @@ export class GitRunner {
         reject(new GitError(`Failed to start git: ${(e as Error).message}`, args, '', null));
         return;
       }
-      if (opts.background && child.pid) {
+      if ((opts.background ?? !opts.priority) && child.pid) {
         try {
           os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
         } catch {
@@ -89,10 +96,12 @@ export class GitRunner {
       child.stderr.on('data', (d: Buffer) => err.push(d));
       child.on('error', (e) => {
         clearTimeout(timer);
+        this.activity.record(args, Date.now() - started, !!opts.priority);
         reject(new GitError(`Failed to run git: ${e.message}`, args, '', null));
       });
       child.on('close', (code) => {
         clearTimeout(timer);
+        this.activity.record(args, Date.now() - started, !!opts.priority);
         const stdout = Buffer.concat(out).toString('utf8');
         const stderr = Buffer.concat(err).toString('utf8');
         if (!opts.readOnly || code !== 0) {

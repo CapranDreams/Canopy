@@ -47,7 +47,7 @@ export async function run(): Promise<void> {
   const ext = vscode.extensions.getExtension<CanopyApi>('MyriadArtificia.canopy-git');
   assert.ok(ext, 'extension is installed');
   const api = await ext.activate();
-  const { manager, tree, store, ops, profiles, detail, profilesPanel, gitlab, github, forge } = api;
+  const { manager, tree, store, state, ops, profiles, detail, profilesPanel, gitlab, github, forge } = api;
   const byName = (n: string) => manager.all.find((r) => r.name === n);
 
   await step('discovers repositories in the workspace, including nested ones', async () => {
@@ -110,7 +110,29 @@ export async function run(): Promise<void> {
     await waitFor('details tab', () => vscode.window.tabGroups.all.some((g) => g.tabs.some((t) => t.label.startsWith('CANOPY · alpha'))));
     const render = await waitFor('details webview rendered', () => detail.lastRender);
     assert.ok(render.rows >= 2, 'graph rows rendered (commits + uncommitted row)');
+    assert.equal(render.drawn, render.rows, 'a short graph is drawn in full');
     assert.equal(render.files, 2);
+  });
+
+  await step('the tree redraws only a changed row, and builds tooltips on hover', async () => {
+    const alpha = byName('alpha')!;
+    const flatten = (nodes: ReturnType<typeof tree.getChildren>): ReturnType<typeof tree.getChildren> => nodes.flatMap((n) => [n, ...flatten(tree.getChildren(n))]);
+    const all = flatten(tree.getChildren());
+    const alphaNode = all.find((n) => n.kind === 'repo' && n.repo === alpha)!;
+    await new Promise((r) => setTimeout(r, 400));
+    const fired: unknown[] = [];
+    const sub = tree.onDidChangeTreeData((e) => fired.push(e));
+    manager.beginActivity(alpha, 'Testing');
+    await new Promise((r) => setTimeout(r, 400));
+    manager.endActivity(alpha, 'Testing');
+    await new Promise((r) => setTimeout(r, 400));
+    sub.dispose();
+    assert.ok(fired.length > 0, 'the row was redrawn');
+    assert.ok(fired.every((e) => e !== undefined), 'no whole-tree redraw for a spinner');
+    assert.ok(fired.includes(alphaNode), 'the very node VS Code was given');
+    const item = tree.getTreeItem(alphaNode);
+    assert.equal(item.tooltip, undefined, 'no tooltip built up front');
+    assert.ok(tree.resolveTreeItem(item, alphaNode).tooltip instanceof vscode.MarkdownString, 'tooltip built on hover');
   });
 
   await step('opens the profiles panel and renders the editor', async () => {
@@ -403,6 +425,76 @@ export async function run(): Promise<void> {
     // The new commit is also unpushed, and push outranks the moved marker; with nothing else pending the marker shows.
     assert.equal(priorityDecoration(tree.factsOf(subRepo))?.badge, '↑1');
     assert.equal(priorityDecoration({ ...tree.factsOf(subRepo), ahead: 0, behind: 0, changed: 0 })?.badge, '≠');
+  });
+
+  await step('submodules from .gitmodules: unloaded until expanded, collapsed, nested in every grouping', async () => {
+    const sh = (cwd: string, ...args: string[]) =>
+      execFileSync('git', ['-c', 'user.name=Test', '-c', 'user.email=test@example.com', '-c', 'commit.gpgsign=false', '-c', 'protocol.file.allow=always', ...args], { cwd, stdio: 'pipe' }).toString();
+    const base = path.join(root, 'work', 'declared-submodule-test');
+    const lib = path.join(base, 'dep-src');
+    const host = path.join(base, 'app');
+    fs.mkdirSync(lib, { recursive: true });
+    fs.mkdirSync(host, { recursive: true });
+    sh(lib, 'init', '-q', '-b', 'main');
+    fs.writeFileSync(path.join(lib, 'a.txt'), 'one\n');
+    sh(lib, 'add', '.');
+    sh(lib, 'commit', '-q', '-m', 'dep one');
+    sh(host, 'init', '-q', '-b', 'main');
+    sh(host, '-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', lib, 'vendor/dep');
+    sh(host, 'commit', '-q', '-m', 'add dep');
+    const depRoot = path.join(host, 'vendor', 'dep');
+    // What `git submodule update` leaves behind: the recorded commit, no branch.
+    sh(depRoot, 'checkout', '-q', '--detach');
+    // Only the parent is added; the submodule comes from its .gitmodules.
+    const [appRepo] = await manager.addRepositories([host]);
+    const dep = await waitFor('declared submodule registered', () => manager.findByRoot(depRoot));
+    assert.equal(dep.lazy, true, 'unloaded until its parent is expanded');
+    assert.equal(dep.declaredBy, appRepo.key);
+    assert.equal(dep.loaded, false, 'no git has run for it yet');
+    assert.ok(!tree.visibleRepos().includes(dep), 'not part of Fetch All, totals or profiles');
+
+    const findApp = () => tree.getChildren().flatMap((n) => (n.kind === 'unsorted' || n.kind === 'folder' || n.kind === 'group' ? tree.getChildren(n) : [n])).find((n) => n.kind === 'repo' && n.repo === appRepo)!;
+    const appNode = findApp();
+    assert.equal(tree.getTreeItem(appNode).collapsibleState, vscode.TreeItemCollapsibleState.Collapsed, 'parent starts collapsed');
+    const kids = tree.getChildren(appNode);
+    assert.deepEqual(kids.map((k) => (k.kind === 'repo' ? k.repo.name : '')), ['dep']);
+    await waitFor('submodule loads on expand', () => dep.loaded && !dep.lazy);
+    assert.equal(dep.detached, true, 'detached HEAD is read once loaded');
+    assert.match(dep.branchLabel, /\(detached\)/, 'row shows the commit it is on');
+    assert.match(String(tree.getTreeItem(tree.getChildren(findApp())[0]).contextValue), /:detached/, 'detached rows hide Pull / Push');
+
+    // Grouped by status, the submodule still sits under its parent instead of in the flat group list.
+    await state.set({ groupBy: 'status' });
+    try {
+      const groupRows = tree.getChildren().flatMap((g) => tree.getChildren(g));
+      assert.ok(groupRows.some((n) => n.kind === 'repo' && n.repo === appRepo), 'parent listed in its status group');
+      assert.ok(!groupRows.some((n) => n.kind === 'repo' && n.repo === dep), 'submodule not listed flat');
+      const appInGroup = groupRows.find((n) => n.kind === 'repo' && n.repo === appRepo)!;
+      assert.deepEqual(tree.getChildren(appInGroup).map((k) => (k.kind === 'repo' ? k.repo.name : '')), ['dep']);
+    } finally {
+      await state.set({ groupBy: 'folders' });
+    }
+  });
+
+  await step('long graphs draw only the rows in view', async () => {
+    const big = path.join(root, 'work', 'long-history');
+    fs.mkdirSync(big, { recursive: true });
+    execFileSync('git', ['init', '-q', '-b', 'main'], { cwd: big });
+    // 400 commits in one process.
+    let stream = '';
+    for (let i = 1; i <= 400; i++) {
+      const msg = `commit ${i}`;
+      const body = `line ${i}\n`;
+      stream += `commit refs/heads/main\nmark :${i}\ncommitter Bench <b@example.com> ${1_700_000_000 + i * 60} +0000\ndata ${msg.length}\n${msg}\n${i > 1 ? `from :${i - 1}\n` : ''}M 644 inline f.txt\ndata ${body.length}\n${body}\n`;
+    }
+    execFileSync('git', ['fast-import', '--quiet'], { cwd: big, input: stream });
+    execFileSync('git', ['reset', '-q', '--hard'], { cwd: big });
+    const [repo] = await manager.addRepositories([big]);
+    await waitFor('long repo loaded', () => repo.loaded);
+    detail.lastRender = undefined;
+    await vscode.commands.executeCommand('canopy.openDetails', repo);
+    const render = await waitFor('long graph rendered', () => (detail.lastRender?.rows === 300 ? detail.lastRender : undefined));
+    assert.ok(render.drawn > 0 && render.drawn < 120, `only a window of the 300 rows is drawn (drew ${render.drawn})`);
   });
 
   const failed = results.filter((r) => !r[1]);
