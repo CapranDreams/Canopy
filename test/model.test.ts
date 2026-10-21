@@ -73,6 +73,11 @@ test('attention ordering', () => {
   assert.equal(attentionOf(facts({ upstream: null, remoteUrls: [] })), 'clean');
 });
 
+test('changes ordering', () => {
+  const list = [facts({ name: 'clean' }), facts({ name: 'few', changed: 1 }), facts({ name: 'many', changed: 9 }), facts({ name: 'b-some', changed: 3 }), facts({ name: 'a-some', changed: 3 })];
+  assert.deepEqual(list.sort(compareRepos('changes')).map((r) => r.name), ['many', 'a-some', 'b-some', 'few', 'clean']);
+});
+
 test('layout: folders, moves, nesting, delete, hidden', () => {
   let l = normalizeLayout(EMPTY_LAYOUT);
   const a = addFolder(l, 'Platform');

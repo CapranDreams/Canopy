@@ -61,7 +61,15 @@ export function needsAttention(r: RepoFacts): boolean {
   return a !== 'clean' && a !== 'unpublished' && a !== 'ahead';
 }
 
-export type SortMode = 'attention' | 'name' | 'recent' | 'manual';
+export type SortMode = 'attention' | 'name' | 'recent' | 'changes' | 'manual';
+
+export const SORT_MODES: ReadonlyArray<{ mode: SortMode; label: string; description: string }> = [
+  { mode: 'attention', label: 'Attention', description: 'conflicts, then incoming, changes, unpushed, clean' },
+  { mode: 'recent', label: 'Recent activity', description: 'latest commit first' },
+  { mode: 'changes', label: 'Most changes', description: 'most changed files first' },
+  { mode: 'name', label: 'Alphabetical', description: 'A to Z' },
+  { mode: 'manual', label: 'Manual', description: 'the order you drag them into' }
+];
 
 export function compareRepos(mode: SortMode, manualOrder?: readonly string[]): (a: RepoFacts, b: RepoFacts) => number {
   const byName = (a: RepoFacts, b: RepoFacts) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base', numeric: true });
@@ -70,6 +78,8 @@ export function compareRepos(mode: SortMode, manualOrder?: readonly string[]): (
       return byName;
     case 'recent':
       return (a, b) => b.lastCommitTime - a.lastCommitTime || byName(a, b);
+    case 'changes':
+      return (a, b) => b.changed - a.changed || b.conflicts - a.conflicts || b.ahead + b.behind - (a.ahead + a.behind) || byName(a, b);
     case 'manual': {
       const pos = new Map((manualOrder ?? []).map((k, i) => [k, i]));
       return (a, b) => (pos.get(a.key) ?? 1e9) - (pos.get(b.key) ?? 1e9) || byName(a, b);

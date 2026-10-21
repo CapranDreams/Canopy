@@ -5,7 +5,7 @@ import { Log } from '../log';
 import { RepoManager } from '../manager';
 import { addFolder, deleteFolder, moveRepos, setHidden, updateFolder, walkFolders } from '../model/layout';
 import { compileQuery, validateQuery } from '../model/query';
-import { ATTENTION_LABEL, Attention, SortMode, attentionOf } from '../model/types';
+import { ATTENTION_LABEL, Attention, SORT_MODES, SortMode, attentionOf } from '../model/types';
 import { DetailPanel } from '../panels/detailPanel';
 import { ProfilesPanel } from '../panels/profilesPanel';
 import { Profiles } from '../profiles';
@@ -130,14 +130,41 @@ export function registerCommands(d: Deps): vscode.Disposable[] {
       const facts = tree.visibleRepos().map((r) => tree.factsOf(r));
       const count = (a: Attention) => facts.filter((f) => attentionOf(f) === a || (a === 'behind' && f.behind > 0) || (a === 'ahead' && f.ahead > 0) || (a === 'changes' && f.changed > 0)).length;
       const atts: Attention[] = ['conflict', 'diverged', 'behind', 'changes', 'ahead', 'unpublished', 'error'];
-      type Item = vscode.QuickPickItem & { att?: Attention; special?: 'hideClean' | 'text' };
+      type Item = vscode.QuickPickItem & { att?: Attention; special?: 'hideClean' | 'text'; sort?: SortMode };
       const items: Item[] = [
-        ...atts.map((a) => ({ label: ATTENTION_LABEL[a], description: `${count(a)}`, att: a, picked: state.filters.includes(a) })),
+        ...atts.map((a) => ({ label: ATTENTION_LABEL[a], description: `${count(a)}`, att: a })),
         { label: '', kind: vscode.QuickPickItemKind.Separator },
-        { label: 'Hide clean repositories', special: 'hideClean' as const, picked: state.hideClean },
-        { label: state.textFilter ? `Text / query filter: ${state.textFilter}` : 'Text / query filter…', description: 'name, branch, or e.g. is:dirty age<7d', special: 'text' as const, picked: !!state.textFilter }
+        { label: 'Hide clean repositories', special: 'hideClean' as const },
+        { label: state.textFilter ? `Text / query filter: ${state.textFilter}` : 'Text / query filter…', description: 'name, branch, or e.g. is:dirty age<7d', special: 'text' as const },
+        { label: 'Sort by', kind: vscode.QuickPickItemKind.Separator },
+        ...SORT_MODES.map(({ mode, label, description }) => ({ label, description, sort: mode }))
       ];
-      const picks = await vscode.window.showQuickPick(items, { canPickMany: true, placeHolder: 'Show only repositories that match (any checked status)' });
+      // A custom quick pick so the sort options behave like radio buttons: checking one unchecks the others.
+      const qp = vscode.window.createQuickPick<Item>();
+      qp.canSelectMany = true;
+      qp.placeholder = 'Show only repositories that match (any checked status), and pick a sort order';
+      qp.items = items;
+      qp.selectedItems = items.filter((i) => (i.att && state.filters.includes(i.att)) || (i.special === 'hideClean' && state.hideClean) || (i.special === 'text' && !!state.textFilter) || i.sort === state.sort);
+      let sort = state.sort;
+      qp.onDidChangeSelection((sel) => {
+        const sorts = sel.filter((i) => i.sort);
+        const next = sorts.find((i) => i.sort !== sort)?.sort ?? sorts[0]?.sort ?? sort;
+        sort = next;
+        if (sorts.length !== 1 || sorts[0].sort !== next) qp.selectedItems = [...sel.filter((i) => !i.sort), items.find((i) => i.sort === next)!];
+      });
+      const picks = await new Promise<readonly Item[] | undefined>((resolve) => {
+        let accepted = false;
+        qp.onDidAccept(() => {
+          accepted = true;
+          resolve(qp.selectedItems);
+          qp.hide();
+        });
+        qp.onDidHide(() => {
+          if (!accepted) resolve(undefined);
+          qp.dispose();
+        });
+        qp.show();
+      });
       if (!picks) return;
       let text = state.textFilter;
       if (picks.some((p) => p.special === 'text')) {
@@ -145,17 +172,11 @@ export function registerCommands(d: Deps): vscode.Disposable[] {
         if (t === undefined) return;
         text = t.trim();
       } else text = '';
-      await state.set({ filters: picks.filter((p) => p.att).map((p) => p.att!), hideClean: picks.some((p) => p.special === 'hideClean'), textFilter: text });
+      await state.set({ filters: picks.filter((p) => p.att).map((p) => p.att!), hideClean: picks.some((p) => p.special === 'hideClean'), textFilter: text, sort });
     }),
     reg('clearFilter', () => state.set({ filters: [], hideClean: false, textFilter: '' })),
     reg('sortBy', async () => {
-      const modes: Array<[SortMode, string, string]> = [
-        ['attention', 'Attention', 'conflicts, then incoming, changes, unpushed, clean'],
-        ['name', 'Name', 'A to Z'],
-        ['recent', 'Recent activity', 'latest commit first'],
-        ['manual', 'Manual', 'the order you drag them into']
-      ];
-      const pick = await vscode.window.showQuickPick(modes.map(([m, label, description]) => ({ label: (state.sort === m ? '$(check) ' : '') + label, description, m })), { placeHolder: 'Sort repositories by' });
+      const pick = await vscode.window.showQuickPick(SORT_MODES.map(({ mode, label, description }) => ({ label: (state.sort === mode ? '$(check) ' : '') + label, description, m: mode })), { placeHolder: 'Sort repositories by' });
       if (pick) await state.set({ sort: pick.m });
     }),
     reg('toggleGroupBy', () => state.set({ groupBy: state.groupBy === 'folders' ? 'status' : 'folders' })),
