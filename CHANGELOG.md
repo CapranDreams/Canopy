@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0
 Performance: CANOPY now stays quiet until you ask, and never makes you wait behind its own background work.
 - Background fetching is off by default, as with VS Code's own `git.autofetch`. Turn it on with `canopy.autoFetch.intervalMinutes`; background fetches then run two at a time at low CPU priority and never open a sign-in window.
 - Fallback status polling (`canopy.refreshIntervalSeconds`) is off by default. File watching and saves keep status current; regaining window focus re-reads status only if the last full refresh is more than 30 minutes old. Use **Refresh** or **Fetch All** when you want everything up to date.
@@ -13,6 +13,9 @@ Performance: CANOPY now stays quiet until you ask, and never makes you wait behi
 - The details panel does no Git work while it is hidden, and reuses branches, stashes and line counts when only a spinner or pipeline status changed.
 - GitLab and GitHub status no longer polls on a timer by default (`canopy.gitlab.refreshMinutes` / `canopy.github.refreshMinutes` are now `0`; set a number of minutes to opt back in). Pipeline and merge/pull request status refreshes after **Fetch**, on **Refresh**, after a push (again 5 seconds later, once the new pipeline exists) and on a branch switch or publish. Whether the pipeline belongs to the checked-out commit updates locally after a commit or pull, without a server call.
 - The details panel updates in place: only the parts that changed are redrawn, so a status update no longer resets the commit graph's scroll position, hover, open menus or the commit message you are typing (cursor and undo history included).
+
+Also new:
+- The **Filter** picker has a "Sort by" section (Attention, Recent activity, Most changes, Alphabetical, Manual), so filters and sort order are set in one place. **Sort By…** offers the same list, including the new **Most changes** order.
 
 ## 1.0.0
 First stable release.
