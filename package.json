@@ -1606,14 +1606,21 @@
         },
         "canopy.autoFetch.intervalMinutes": {
           "type": "number",
-          "default": 5,
+          "default": 0,
           "minimum": 0,
-          "markdownDescription": "Fetch all visible repositories every N minutes. `0` turns automatic fetching off."
+          "markdownDescription": "Fetch all visible repositories in the background every N minutes. `0` (the default, as with VS Code's `git.autofetch`) turns automatic fetching off; use **Fetch All** when you want updates. Background fetches run two at a time at low priority and never show a sign-in window."
         },
         "canopy.autoFetch.onFocus": {
           "type": "boolean",
           "default": true,
-          "markdownDescription": "Fetch when the window regains focus and the last fetch is older than the interval."
+          "markdownDescription": "When automatic fetching is on, also fetch when the window regains focus and the last fetch is older than the interval."
+        },
+        "canopy.fetchAllConcurrency": {
+          "type": "number",
+          "default": 12,
+          "minimum": 0,
+          "maximum": 64,
+          "markdownDescription": "How many repositories **Fetch All** fetches at once. `0` fetches every repository at once. Dropped connections (e.g. *Connection closed by remote host* when an SSH server limits simultaneous logins) are retried automatically, and each host is signed in to once before the rest of its repositories are fetched."
         },
         "canopy.fetchPrune": {
           "type": "boolean",
@@ -1622,16 +1629,16 @@
         },
         "canopy.refreshIntervalSeconds": {
           "type": "number",
-          "default": 60,
-          "minimum": 10,
-          "markdownDescription": "How often local status is re-read as a fallback to file watching."
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "Re-read local status of every repository every N seconds (minimum 10) as a fallback to file watching. `0` (the default) turns polling off: saves and changes in `.git` still update status, and **Refresh** re-reads everything on demand."
         },
         "canopy.maxConcurrentGit": {
           "type": "number",
           "default": 6,
           "minimum": 1,
           "maximum": 16,
-          "markdownDescription": "Maximum number of Git processes CANOPY runs at once."
+          "markdownDescription": "Maximum number of status-reading Git processes CANOPY runs at once. Fetches have their own limit (`canopy.fetchAllConcurrency`), and your own commands never wait."
         },
         "canopy.gitPath": {
           "type": "string",
@@ -1744,9 +1751,9 @@
         },
         "canopy.gitlab.refreshMinutes": {
           "type": "number",
-          "default": 3,
-          "minimum": 1,
-          "markdownDescription": "How often pipeline and merge request status is refreshed for visible repositories."
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "Refresh pipeline and merge request status of visible repositories every N minutes. `0` (the default) turns timed refreshing off: status is re-read after **Fetch**, **Refresh**, a push and a branch switch."
         },
         "canopy.gitlab.cloneProtocol": {
           "type": "string",
@@ -1769,9 +1776,9 @@
         },
         "canopy.github.refreshMinutes": {
           "type": "number",
-          "default": 3,
-          "minimum": 1,
-          "markdownDescription": "How often GitHub checks and pull request status is refreshed for visible repositories."
+          "default": 0,
+          "minimum": 0,
+          "markdownDescription": "Refresh GitHub checks and pull request status of visible repositories every N minutes. `0` (the default) turns timed refreshing off: status is re-read after **Fetch**, **Refresh**, a push and a branch switch."
         },
         "canopy.github.cloneProtocol": {
           "type": "string",

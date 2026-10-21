@@ -22,6 +22,8 @@ export class Repo {
   /** Working tree of the repository this one is a submodule of, if any. */
   superRoot: string | undefined;
   private signature = '';
+  /** mtime of the repository's config file when remotes were last read. */
+  private configTime = 0;
 
   constructor(
     readonly root: string,
@@ -104,56 +106,83 @@ export class Repo {
     };
   }
 
-  /** Re-reads status. Returns true when anything visible changed. */
-  async refresh(): Promise<boolean> {
+  /**
+   * Re-reads status. Returns true when anything visible changed. `priority` skips the status queue (use it for
+   * refreshes the user is waiting on, e.g. right after their own command). Usually one git process: the last
+   * commit time is re-read only when HEAD moved, and remotes only when the repository's config file changed.
+   */
+  async refresh(priority = false): Promise<boolean> {
+    const ro = { readOnly: true, priority };
     try {
       if (!this.gitDir) {
-        const out = await this.git(['rev-parse', '--absolute-git-dir', '--git-common-dir'], { readOnly: true });
+        const out = await this.git(['rev-parse', '--absolute-git-dir', '--git-common-dir'], ro);
         const [gitDir, common] = out.split(/\r?\n/);
         this.gitDir = gitDir.trim();
         this.commonDir = path.resolve(this.root, common.trim());
         // Empty outside a submodule (worktrees and ordinary repositories print nothing).
-        const sup = (await this.git(['rev-parse', '--show-superproject-working-tree'], { readOnly: true }).catch(() => '')).trim();
+        const sup = (await this.git(['rev-parse', '--show-superproject-working-tree'], ro).catch(() => '')).trim();
         this.superRoot = sup ? path.resolve(sup) : undefined;
       }
-      const [statusOut, logOut, remoteOut] = await Promise.all([
-        this.git(['status', '--porcelain=v2', '--branch', '-z'], { readOnly: true }),
-        this.git(['log', '-1', '--format=%ct'], { readOnly: true }).catch(() => ''),
-        this.git(['remote', '-v'], { readOnly: true }).catch(() => '')
+      const configTime = await mtime(path.join(this.commonDir ?? this.gitDir, 'config'));
+      const [statusOut, remoteOut, operation, fetchHead] = await Promise.all([
+        this.git(['status', '--porcelain=v2', '--branch', '-z'], ro),
+        configTime !== this.configTime || !configTime ? this.git(['remote', '-v'], ro).catch(() => undefined) : Promise.resolve(undefined),
+        this.detectOperation(),
+        this.fetchHeadTime()
       ]);
-      this.status = parseStatusV2(statusOut);
-      this.lastCommitTime = Number(logOut.trim()) || 0;
-      this.remotes = parseRemotes(remoteOut);
-      this.operation = this.detectOperation();
-      this.lastFetch = Math.max(this.lastFetch, this.fetchHeadTime());
+      const status = parseStatusV2(statusOut);
+      if (status.oid !== this.status?.oid || !this.lastCommitTime) {
+        this.lastCommitTime = status.oid ? Number((await this.git(['log', '-1', '--format=%ct'], ro).catch(() => '')).trim()) || 0 : 0;
+      }
+      this.status = status;
+      if (remoteOut !== undefined) {
+        this.remotes = parseRemotes(remoteOut);
+        this.configTime = configTime;
+      }
+      this.operation = operation;
+      this.lastFetch = Math.max(this.lastFetch, fetchHead);
       this.error = null;
     } catch (e) {
       this.error = e instanceof GitError ? e.message : String(e);
     }
     this.loaded = true;
-    const sig = JSON.stringify([this.status, this.operation, this.error, this.lastCommitTime, [...this.remotes], this.fetching, this.superRoot]);
+    const sig = JSON.stringify([this.status, this.operation, this.error, this.lastCommitTime, [...this.remotes], this.superRoot]);
     const changed = sig !== this.signature;
     this.signature = sig;
     return changed;
   }
 
-  private detectOperation(): OperationKind | null {
+  private async detectOperation(): Promise<OperationKind | null> {
     const dir = this.gitDir;
     if (!dir) return null;
-    const has = (name: string) => fs.existsSync(path.join(dir, name));
-    if (has('rebase-merge') || has('rebase-apply')) return 'rebase';
-    if (has('MERGE_HEAD')) return 'merge';
-    if (has('CHERRY_PICK_HEAD')) return 'cherry-pick';
-    if (has('REVERT_HEAD')) return 'revert';
-    if (has('BISECT_LOG')) return 'bisect';
+    const names = ['rebase-merge', 'rebase-apply', 'MERGE_HEAD', 'CHERRY_PICK_HEAD', 'REVERT_HEAD', 'BISECT_LOG'];
+    const [rebaseMerge, rebaseApply, merge, cherry, revert, bisect] = await Promise.all(names.map((n) => exists(path.join(dir, n))));
+    if (rebaseMerge || rebaseApply) return 'rebase';
+    if (merge) return 'merge';
+    if (cherry) return 'cherry-pick';
+    if (revert) return 'revert';
+    if (bisect) return 'bisect';
     return null;
   }
 
-  private fetchHeadTime(): number {
-    try {
-      return fs.statSync(path.join(this.commonDir ?? this.gitDir ?? path.join(this.root, '.git'), 'FETCH_HEAD')).mtimeMs;
-    } catch {
-      return 0;
-    }
+  private fetchHeadTime(): Promise<number> {
+    return mtime(path.join(this.commonDir ?? this.gitDir ?? path.join(this.root, '.git'), 'FETCH_HEAD'));
+  }
+}
+
+async function mtime(file: string): Promise<number> {
+  try {
+    return (await fs.promises.stat(file)).mtimeMs;
+  } catch {
+    return 0;
+  }
+}
+
+async function exists(file: string): Promise<boolean> {
+  try {
+    await fs.promises.access(file);
+    return true;
+  } catch {
+    return false;
   }
 }

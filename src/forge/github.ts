@@ -72,7 +72,7 @@ export class GitHubService implements ForgeProvider {
         }
       }),
       vscode.window.onDidChangeWindowState((s) => {
-        if (s.focused) this.refreshVisible(false);
+        if (s.focused && this.pollMinutes() > 0) this.refreshVisible(false);
       })
     );
     this.startTimer();
@@ -179,25 +179,39 @@ export class GitHubService implements ForgeProvider {
 
   // --- refreshing -----------------------------------------------------------------
 
-  private startTimer(): void {
-    if (this.timer) clearInterval(this.timer);
-    const minutes = Math.max(1, vscode.workspace.getConfiguration('canopy').get<number>('github.refreshMinutes', 3));
-    this.timer = setInterval(() => {
-      if (vscode.window.state.focused) this.refreshVisible(false);
-    }, minutes * 60_000);
+  /** Timed polling interval; 0 (the default) means status refreshes only on Fetch, Refresh, push and branch changes. */
+  private pollMinutes(): number {
+    return vscode.workspace.getConfiguration('canopy').get<number>('github.refreshMinutes', 0);
   }
 
+  private startTimer(): void {
+    if (this.timer) clearInterval(this.timer);
+    this.timer = undefined;
+    const minutes = this.pollMinutes();
+    if (minutes <= 0) return;
+    this.timer = setInterval(() => {
+      if (vscode.window.state.focused) this.refreshVisible(false);
+    }, Math.max(1, minutes) * 60_000);
+  }
+
+  /** Changes that make the cached status wrong: another branch, or the branch was published / retargeted. */
   private stateKeyOf(repo: Repo): string {
-    return [repo.branch, repo.status?.oid, repo.upstream, repo.ahead, repo.lastFetch].join('|');
+    return [repo.branch, repo.upstream].join('|');
   }
 
   private onRepoChanged(repo: Repo): void {
     const prev = this.infos.get(repo.key);
-    if (!prev || prev.stateKey !== this.stateKeyOf(repo)) void this.refresh(repo);
+    if (!prev || prev.stateKey !== this.stateKeyOf(repo)) return void this.refresh(repo);
+    // A commit, pull or reset only moves HEAD; whether the pipeline is for HEAD is known without asking the server.
+    const isHead = !!prev.pipeline && prev.pipeline.sha === repo.status?.oid;
+    if (prev.pipeline && prev.pipeline.isHead !== isHead) {
+      prev.pipeline.isHead = isHead;
+      this._onDidChange.fire(repo);
+    }
   }
 
   refreshVisible(force: boolean): void {
-    const maxAge = Math.max(1, vscode.workspace.getConfiguration('canopy').get<number>('github.refreshMinutes', 3)) * 60_000;
+    const maxAge = Math.max(1, this.pollMinutes()) * 60_000;
     for (const r of this.visibleRepos()) {
       const prev = this.infos.get(r.key);
       if (force || !prev || Date.now() - prev.fetchedAt > maxAge) void this.refresh(r);

@@ -65,12 +65,14 @@ export class GitOps {
     const run = () => repo.git(args, { input: opts.input, env: opts.env, priority: true, timeoutMs: opts.timeoutMs ?? 10 * 60_000 });
     const activity = NO_ACTIVITY.has(args[0]) ? undefined : (ACTIVITY[args[0]] ?? 'Working');
     if (activity) this.manager.beginActivity(repo, activity);
+    let pushed = false;
     try {
       const out = opts.notify
         ? await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `${repo.name}: ${title}…` }, run)
         : await vscode.window.withProgress({ location: vscode.ProgressLocation.SourceControl, title }, () =>
             vscode.window.withProgress({ location: vscode.ProgressLocation.Window, title: `${repo.name}: ${title}` }, run)
           );
+      pushed = args[0] === 'push';
       return out;
     } catch (e) {
       if (opts.succeededAnyway && (await opts.succeededAnyway().catch(() => false))) {
@@ -81,13 +83,14 @@ export class GitOps {
       return undefined;
     } finally {
       if (activity) this.manager.endActivity(repo, activity);
-      await this.manager.refresh(repo);
+      await this.manager.refresh(repo, true);
+      if (pushed) this.manager.notifyPushed(repo);
     }
   }
 
   async reportError(repo: Repo, e: unknown, title: string): Promise<void> {
     const msg = e instanceof GitError ? e.message : String(e);
-    await this.manager.refresh(repo);
+    await this.manager.refresh(repo, true);
     if (repo.conflicts.length) {
       const a = await vscode.window.showWarningMessage(`${repo.name}: ${title} stopped with ${repo.conflicts.length} conflicted file(s).`, 'Open Conflicts', 'Abort', 'Show Output');
       if (a === 'Open Conflicts') await this.openConflicts([repo]);
@@ -519,7 +522,7 @@ export class GitOps {
   }
 
   private async continueOperation(r: Repo): Promise<void> {
-    await this.manager.refresh(r);
+    await this.manager.refresh(r, true);
     const op = this.operationVerb(r);
     if (!op) return void vscode.window.showInformationMessage(`No merge, rebase or cherry-pick in progress in ${r.name}.`);
     if (r.conflicts.length) {
@@ -545,7 +548,7 @@ export class GitOps {
 
   async abortOperation(repos: Repo[]): Promise<void> {
     for (const r of repos) {
-      await this.manager.refresh(r);
+      await this.manager.refresh(r, true);
       const op = r.operation;
       if (!op) {
         void vscode.window.showInformationMessage(`Nothing to abort in ${r.name}.`);
@@ -729,7 +732,7 @@ export class GitOps {
     for (const u of untracked) {
       await vscode.workspace.fs.delete(vscode.Uri.file(path.join(r.root, u)), { recursive: true, useTrash: true });
     }
-    await this.manager.refresh(r);
+    await this.manager.refresh(r, true);
     return true;
   }
 

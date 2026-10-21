@@ -62,6 +62,7 @@ export async function activate(ctx: vscode.ExtensionContext): Promise<CanopyApi>
     svc.visibleRepos = () => tree.visibleRepos();
   }
   const forge = new ForgeHub([gitlab, github]);
+  forge.followRemoteActivity(manager.onDidReachRemote);
   tree.forge = forge;
   detail.forge = forge;
 

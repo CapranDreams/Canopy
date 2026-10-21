@@ -3,10 +3,21 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { GitError, GitRunner } from './git/runner';
+import { credentialHosts } from './git/fetchErrors';
+import { FetchMode, FetchOutcome, FetchScheduler } from './git/fetchScheduler';
 import { Repo } from './repo';
 import { Store } from './store';
 import { mapLimit } from './util/limit';
 import { Log } from './log';
+
+/** Window focus re-reads status only when the last full refresh is older than this; Fetch All / Refresh are the explicit ways. */
+const FOCUS_REFRESH_MS = 30 * 60_000;
+/** Git-dir watcher events this soon after CANOPY's own fetch or command are its own writes, already refreshed. */
+const SELF_WRITE_QUIET_MS = 1500;
+
+function fetchAllConcurrency(): number {
+  return vscode.workspace.getConfiguration('canopy').get<number>('fetchAllConcurrency', 12);
+}
 
 /** Discovers repositories, keeps their status fresh and runs fetches. */
 export class RepoManager implements vscode.Disposable {
@@ -18,11 +29,18 @@ export class RepoManager implements vscode.Disposable {
   readonly onDidChange = this._onDidChange.event;
   private readonly _onDidChangeFetching = new vscode.EventEmitter<void>();
   readonly onDidChangeFetching = this._onDidChangeFetching.event;
+  private readonly _onDidReachRemote = new vscode.EventEmitter<{ repo: Repo; reason: 'fetch' | 'push' }>();
+  /** A fetch the user asked for, or a push, finished successfully; pipeline / MR status is worth re-reading. */
+  readonly onDidReachRemote = this._onDidReachRemote.event;
   private readonly disposables: vscode.Disposable[] = [];
   private pollTimer: NodeJS.Timeout | undefined;
   private fetchTimer: NodeJS.Timeout | undefined;
   private lastFetchAll = 0;
+  private lastRefreshAll = Date.now();
+  private readonly quietUntil = new Map<string, number>();
+  private byRoot: Map<string, Repo> | undefined;
   private discovering: Promise<void> | undefined;
+  private readonly fetcher: FetchScheduler;
   fetchingCount = 0;
 
   constructor(
@@ -30,9 +48,11 @@ export class RepoManager implements vscode.Disposable {
     private readonly store: Store,
     private readonly log: Log
   ) {
+    this.fetcher = new FetchScheduler(fetchAllConcurrency(), (line) => log.info(line));
     this.disposables.push(
       this._onDidChange,
       this._onDidChangeFetching,
+      this._onDidReachRemote,
       vscode.workspace.onDidChangeWorkspaceFolders(() => this.discover()),
       vscode.workspace.onDidSaveTextDocument((doc) => this.touchPath(doc.uri)),
       vscode.workspace.onDidCreateFiles((e) => e.files.forEach((f) => this.touchPath(f))),
@@ -46,6 +66,7 @@ export class RepoManager implements vscode.Disposable {
           void this.discover();
         }
         if (e.affectsConfiguration('canopy.autoFetch') || e.affectsConfiguration('canopy.refreshIntervalSeconds')) this.startTimers();
+        if (e.affectsConfiguration('canopy.fetchAllConcurrency')) this.fetcher.setManualConcurrency(fetchAllConcurrency());
       })
     );
     this.startTimers();
@@ -68,8 +89,9 @@ export class RepoManager implements vscode.Disposable {
   }
 
   findByRoot(root: string): Repo | undefined {
-    const norm = normalizeFsPath(root);
-    return this.all.find((r) => normalizeFsPath(r.root) === norm);
+    // The tree calls this for every row on every redraw (submodule parents), so keep an index.
+    if (!this.byRoot) this.byRoot = new Map(this.all.map((r) => [normalizeFsPath(r.root), r]));
+    return this.byRoot.get(normalizeFsPath(root));
   }
 
   /** The repo whose working tree contains `fsPath` (deepest match wins). */
@@ -87,6 +109,7 @@ export class RepoManager implements vscode.Disposable {
   rekey(): void {
     const entries = [...this.repos.values()];
     this.repos.clear();
+    this.byRoot = undefined;
     for (const r of entries) {
       r.key = this.store.keyFor(r.root);
       this.repos.set(r.key, r);
@@ -139,6 +162,7 @@ export class RepoManager implements vscode.Disposable {
     for (const [key, repo] of this.repos) {
       if (!byNorm.has(normalizeFsPath(repo.root))) {
         this.repos.delete(key);
+        this.byRoot = undefined;
         this.watchers.get(key)?.forEach((w) => w.dispose());
         this.watchers.delete(key);
         changed = true;
@@ -149,6 +173,7 @@ export class RepoManager implements vscode.Disposable {
       if (this.findByRoot(root)) continue;
       const repo = new Repo(root, this.store.keyFor(root), this.runner);
       this.repos.set(repo.key, repo);
+      this.byRoot = undefined;
       added.push(repo);
       changed = true;
     }
@@ -178,12 +203,30 @@ export class RepoManager implements vscode.Disposable {
     const list: vscode.Disposable[] = [];
     const add = (dir: string, glob: string) => {
       const w = vscode.workspace.createFileSystemWatcher(new vscode.RelativePattern(vscode.Uri.file(dir), glob));
-      const fire = () => this.scheduleRefresh(repo);
+      const fire = () => this.onGitDirChange(repo);
       list.push(w, w.onDidChange(fire), w.onDidCreate(fire), w.onDidDelete(fire));
     };
-    add(repo.gitDir, '{HEAD,index,ORIG_HEAD,MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,FETCH_HEAD,rebase-merge/*,rebase-apply/*}');
-    add(repo.commonDir ?? repo.gitDir, '{packed-refs,refs/**}');
+    // Top-level files only (no '/' in the glob, so no recursive watch over objects/); rebase dirs show up as created/deleted.
+    add(repo.gitDir, '{HEAD,index,ORIG_HEAD,MERGE_HEAD,CHERRY_PICK_HEAD,REVERT_HEAD,BISECT_LOG,rebase-merge,rebase-apply}');
+    const common = repo.commonDir ?? repo.gitDir;
+    add(common, 'packed-refs');
+    // The only recursive watch, and it covers refs/ alone.
+    add(path.join(common, 'refs'), '**');
     this.watchers.set(repo.key, list);
+  }
+
+  /** Git-dir change: ignored while CANOPY itself is writing (fetch, push, commit...), which refreshes on completion. */
+  private onGitDirChange(repo: Repo): void {
+    if (repo.fetching || repo.activity.length || Date.now() < (this.quietUntil.get(repo.key) ?? 0)) return;
+    this.scheduleRefresh(repo);
+  }
+
+  /** Marks the repo's own write as done: drops queued watcher refreshes and ignores the trailing watcher events. */
+  private settleSelfWrite(repo: Repo): void {
+    const pending = this.pending.get(repo.key);
+    if (pending) clearTimeout(pending);
+    this.pending.delete(repo.key);
+    this.quietUntil.set(repo.key, Date.now() + SELF_WRITE_QUIET_MS);
   }
 
   private touchPath(uri: vscode.Uri): void {
@@ -204,27 +247,36 @@ export class RepoManager implements vscode.Disposable {
     );
   }
 
-  async refresh(repo: Repo): Promise<void> {
+  /** Re-reads one repo. `priority` skips the status queue; use it when the user is waiting on the result. */
+  async refresh(repo: Repo, priority = false): Promise<void> {
     const wasLoaded = !!repo.gitDir;
-    if (await repo.refresh()) this._onDidChange.fire(repo);
+    if (await repo.refresh(priority)) this._onDidChange.fire(repo);
     if (!wasLoaded) this.watch(repo);
   }
 
   async refreshAll(): Promise<void> {
+    this.lastRefreshAll = Date.now();
     await mapLimit(this.all, 8, (r) => this.refresh(r));
   }
 
   private startTimers(): void {
     const cfg = vscode.workspace.getConfiguration('canopy');
     if (this.pollTimer) clearInterval(this.pollTimer);
-    this.pollTimer = setInterval(() => {
-      if (vscode.window.state.focused) void this.refreshAll();
-    }, Math.max(10, cfg.get<number>('refreshIntervalSeconds', 60)) * 1000);
+    this.pollTimer = undefined;
+    // Off by default: file watchers and saves keep status current; this is only a fallback for missed events.
+    const seconds = cfg.get<number>('refreshIntervalSeconds', 0);
+    if (seconds > 0) {
+      this.pollTimer = setInterval(() => {
+        if (vscode.window.state.focused && !this.fetchingCount) void this.refreshAll();
+      }, Math.max(10, seconds) * 1000);
+    }
     if (this.fetchTimer) clearInterval(this.fetchTimer);
-    const minutes = cfg.get<number>('autoFetch.intervalMinutes', 5);
+    this.fetchTimer = undefined;
+    // Off by default, as in VS Code's own git.autofetch.
+    const minutes = cfg.get<number>('autoFetch.intervalMinutes', 0);
     if (minutes > 0) {
       this.fetchTimer = setInterval(() => {
-        if (vscode.window.state.focused) void this.fetchAll(this.visibleForAutoFetch(), { silent: true });
+        if (vscode.window.state.focused) void this.fetchAll(this.visibleForAutoFetch(), { silent: true, mode: 'background' });
       }, minutes * 60_000);
     }
   }
@@ -233,11 +285,11 @@ export class RepoManager implements vscode.Disposable {
   visibleForAutoFetch: () => Repo[] = () => this.all;
 
   private onFocus(): void {
-    void this.refreshAll();
+    if (Date.now() - this.lastRefreshAll > FOCUS_REFRESH_MS) void this.refreshAll();
     const cfg = vscode.workspace.getConfiguration('canopy');
-    const minutes = cfg.get<number>('autoFetch.intervalMinutes', 5);
+    const minutes = cfg.get<number>('autoFetch.intervalMinutes', 0);
     if (minutes > 0 && cfg.get<boolean>('autoFetch.onFocus', true) && Date.now() - this.lastFetchAll > minutes * 60_000) {
-      void this.fetchAll(this.visibleForAutoFetch(), { silent: true });
+      void this.fetchAll(this.visibleForAutoFetch(), { silent: true, mode: 'background' });
     }
   }
 
@@ -250,48 +302,104 @@ export class RepoManager implements vscode.Disposable {
   endActivity(repo: Repo, label: string): void {
     const i = repo.activity.lastIndexOf(label);
     if (i >= 0) repo.activity.splice(i, 1);
+    if (!repo.activity.length) this.settleSelfWrite(repo);
     this._onDidChange.fire(repo);
   }
 
   async fetch(repo: Repo, opts: { prune?: boolean; allRemotes?: boolean; silent?: boolean } = {}): Promise<boolean> {
-    if (repo.fetching || !repo.remotes.size) return true;
+    const outcome = await this.fetchOne(repo, { ...opts, mode: 'manual', batchStart: Date.now() });
+    if (!outcome.ok && !opts.silent) {
+      const msg = outcome.failure === 'auth' ? `sign-in failed${outcome.message ? ` (${outcome.message})` : ''}` : (outcome.message ?? 'unknown error');
+      void vscode.window.showErrorMessage(`CANOPY: fetch failed in ${repo.name}: ${msg}`, 'Show Output').then((a) => a && this.log.show());
+    }
+    return outcome.ok;
+  }
+
+  private async fetchOne(repo: Repo, opts: { prune?: boolean; allRemotes?: boolean; mode: FetchMode; batchStart: number }): Promise<FetchOutcome> {
+    if (repo.fetching || !repo.remotes.size) return { ok: true, attempts: 0 };
     const prune = opts.prune ?? vscode.workspace.getConfiguration('canopy').get<boolean>('fetchPrune', false);
-    const args = ['fetch', ...(opts.allRemotes || repo.remotes.size > 1 ? ['--all'] : []), ...(prune ? ['--prune'] : [])];
+    const all = opts.allRemotes || repo.remotes.size > 1;
+    const args = ['fetch', ...(all ? ['--all'] : []), ...(prune ? ['--prune'] : [])];
+    const urls = all ? [...repo.remotes.values()] : repo.primaryRemote ? [repo.primaryRemote.url] : [...repo.remotes.values()];
+    const background = opts.mode === 'background';
     repo.fetching = true;
     repo.activity.push('Fetching');
     this.fetchingCount++;
     this._onDidChange.fire(repo);
     this._onDidChangeFetching.fire();
+    let outcome: FetchOutcome = { ok: false, attempts: 0 };
     try {
-      await repo.git(args, { timeoutMs: 5 * 60_000 });
-      repo.lastFetch = Date.now();
-      return true;
+      outcome = await this.fetcher.run({
+        hosts: credentialHosts(urls),
+        mode: opts.mode,
+        batchStart: opts.batchStart,
+        exec: () =>
+          repo.git(args, {
+            // The fetch pools do the limiting; the status queue stays free for reads.
+            priority: true,
+            background,
+            timeoutMs: 5 * 60_000,
+            // Background fetches must never pop a sign-in window; only a fetch the user asked for may.
+            env: background ? { GCM_INTERACTIVE: 'never' } : undefined
+          })
+      });
+      if (outcome.ok) {
+        repo.lastFetch = Date.now();
+        if (outcome.attempts > 1) this.log.info(`${repo.name}: fetch succeeded on attempt ${outcome.attempts}.`);
+      } else if (outcome.skipped) {
+        this.log.warn(`${repo.name}: fetch skipped; sign-in to ${outcome.authHost} failed earlier.`);
+      } else {
+        this.log.warn(`${repo.name}: fetch failed${outcome.attempts > 1 ? ` after ${outcome.attempts} attempts` : ''}: ${outcome.message}`);
+      }
+      return outcome;
     } catch (e) {
       const msg = e instanceof GitError ? e.message : String(e);
       this.log.warn(`${repo.name}: fetch failed: ${msg}`);
-      if (!opts.silent) void vscode.window.showErrorMessage(`CANOPY: fetch failed in ${repo.name}: ${msg}`, 'Show Output').then((a) => a && this.log.show());
-      return false;
+      return { ok: false, failure: 'other', message: msg, attempts: 1 };
     } finally {
       repo.fetching = false;
       const i = repo.activity.lastIndexOf('Fetching');
       if (i >= 0) repo.activity.splice(i, 1);
       this.fetchingCount--;
-      this._onDidChangeFetching.fire();
-      await this.refresh(repo);
+      this.settleSelfWrite(repo);
+      await repo.refresh(true);
+      // One change event per finished fetch (activity, status and lastFetch together).
       this._onDidChange.fire(repo);
+      this._onDidChangeFetching.fire();
+      if (outcome.ok && opts.mode === 'manual') this._onDidReachRemote.fire({ repo, reason: 'fetch' });
     }
   }
 
-  async fetchAll(repos: Repo[], opts: { prune?: boolean; silent?: boolean } = {}): Promise<{ ok: number; failed: Repo[] }> {
-    this.lastFetchAll = Date.now();
-    const results = await Promise.all(repos.map(async (r) => ((await this.fetch(r, { ...opts, silent: true })) ? null : r)));
-    const failed = results.filter((r): r is Repo => !!r);
+  /** Called after a successful push (also from sync and publish). */
+  notifyPushed(repo: Repo): void {
+    this._onDidReachRemote.fire({ repo, reason: 'push' });
+  }
+
+  /**
+   * Fetches many repos: `manual` (default) runs canopy.fetchAllConcurrency at a time; `background` runs two at a
+   * time at low CPU priority. Dropped connections retry silently; sign-in failures are reported once per host.
+   */
+  async fetchAll(repos: Repo[], opts: { prune?: boolean; silent?: boolean; mode?: FetchMode } = {}): Promise<{ ok: number; failed: Repo[] }> {
+    const batchStart = Date.now();
+    this.lastFetchAll = batchStart;
+    const mode = opts.mode ?? 'manual';
+    const results = await Promise.all(repos.map(async (r) => ({ repo: r, outcome: await this.fetchOne(r, { prune: opts.prune, mode, batchStart }) })));
+    const failed = results.filter((x) => !x.outcome.ok);
     if (failed.length && !opts.silent) {
-      void vscode.window
-        .showWarningMessage(`CANOPY: fetch failed in ${failed.map((r) => r.name).join(', ')}.`, 'Show Output')
-        .then((a) => a && this.log.show());
+      const authByHost = new Map<string, Repo[]>();
+      const other: Repo[] = [];
+      for (const { repo, outcome } of failed) {
+        const host = outcome.failure === 'auth' ? (outcome.authHost ?? credentialHosts(repo.remotes.values())[0]) : undefined;
+        if (host) authByHost.set(host, [...(authByHost.get(host) ?? []), repo]);
+        else other.push(repo);
+      }
+      const parts = [
+        ...[...authByHost].map(([host, rs]) => `sign-in to ${host} failed (${rs.length} ${rs.length === 1 ? 'repository' : 'repositories'} not fetched)`),
+        ...(other.length ? [`fetch failed in ${other.map((r) => r.name).join(', ')}`] : [])
+      ];
+      void vscode.window.showWarningMessage(`CANOPY: ${parts.join('; ')}.`, 'Show Output').then((a) => a && this.log.show());
     }
-    return { ok: repos.length - failed.length, failed };
+    return { ok: repos.length - failed.length, failed: failed.map((x) => x.repo) };
   }
 }
 

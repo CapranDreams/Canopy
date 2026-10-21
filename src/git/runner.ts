@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import * as os from 'node:os';
 import { Limiter } from '../util/limit';
 
 export class GitError extends Error {
@@ -22,6 +23,8 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   /** Bypass the concurrency limiter (for user-initiated, interactive operations). */
   priority?: boolean;
+  /** Run git (and the ssh / credential helpers it starts, which inherit it) at below-normal CPU priority. */
+  background?: boolean;
 }
 
 export type GitLogger = (line: string) => void;
@@ -68,6 +71,13 @@ export class GitRunner {
       } catch (e) {
         reject(new GitError(`Failed to start git: ${(e as Error).message}`, args, '', null));
         return;
+      }
+      if (opts.background && child.pid) {
+        try {
+          os.setPriority(child.pid, os.constants.priority.PRIORITY_BELOW_NORMAL);
+        } catch {
+          // Best effort; the process may already have exited.
+        }
       }
       const out: Buffer[] = [];
       const err: Buffer[] = [];

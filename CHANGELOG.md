@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+Performance: CANOPY now stays quiet until you ask, and never makes you wait behind its own background work.
+- Background fetching is off by default, as with VS Code's own `git.autofetch`. Turn it on with `canopy.autoFetch.intervalMinutes`; background fetches then run two at a time at low CPU priority and never open a sign-in window.
+- Fallback status polling (`canopy.refreshIntervalSeconds`) is off by default. File watching and saves keep status current; regaining window focus re-reads status only if the last full refresh is more than 30 minutes old. Use **Refresh** or **Fetch All** when you want everything up to date.
+- **Fetch All** runs 12 repositories at once (`canopy.fetchAllConcurrency`, `0` for all at once) in its own pool, so status reads and your own commands never queue behind fetches. The refresh after a push, pull, commit or any other command now runs immediately instead of waiting for fetches to finish.
+- Dropped connections ("Connection closed by remote host", "remote end hung up", HTTP 5xx and similar) are retried automatically, up to twice with backoff, without any warning. Only fetches that still fail are reported, in a single message.
+- One sign-in per host: the first fetch to each host runs alone, and the others wait until it has signed in and then reuse the stored credential. If that sign-in fails, the host's other repositories are skipped for that Fetch All instead of each asking again, and the warning names the host once.
+- A fetch no longer sets off follow-up work: one redraw per repository instead of three, no second status read triggered by the fetch's own `.git` writes, and no GitLab/GitHub API calls unless the branch, commit or ahead/behind counts changed.
+- A status refresh normally runs one Git process instead of three (the last commit time is re-read only when HEAD moves, and remotes only when the repository config changes).
+- `.git` watchers cover only the files and `refs/` folders CANOPY needs, not the whole `.git` folder.
+- The details panel does no Git work while it is hidden, and reuses branches, stashes and line counts when only a spinner or pipeline status changed.
+- GitLab and GitHub status no longer polls on a timer by default (`canopy.gitlab.refreshMinutes` / `canopy.github.refreshMinutes` are now `0`; set a number of minutes to opt back in). Pipeline and merge/pull request status refreshes after **Fetch**, on **Refresh**, after a push (again 5 seconds later, once the new pipeline exists) and on a branch switch or publish. Whether the pipeline belongs to the checked-out commit updates locally after a commit or pull, without a server call.
+- The details panel updates in place: only the parts that changed are redrawn, so a status update no longer resets the commit graph's scroll position, hover, open menus or the commit message you are typing (cursor and undo history included).
+
 ## 1.0.0
 First stable release.
 - One busy indicator everywhere: while any git action runs on a repository (pull, push, sync, fetch, publish, commit, stash, branch switch, merge, rebase, cherry-pick, revert, reset, clean, tags, remotes, worktrees, submodule updates), its row in the sidebar and the Sync button in the details panel both spin and name what is happening ("Pulling…", "Stashing…"). They read the same state, so if one spins the other does, whichever way the action was started. Sync keeps a steady "Syncing…" through its pull and push. Instant staging commands do not flicker a spinner.

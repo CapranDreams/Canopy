@@ -333,10 +333,10 @@ export class Profiles {
       }
     }
     if (p.onApply.pullAfter && (step.kind === 'pull' || step.kind === 'switch' || step.kind === 'stash-switch')) {
-      await this.manager.refresh(repo);
+      await this.manager.refresh(repo, true);
       if (repo.upstream) await git(['pull', '--ff-only']);
     }
-    await this.manager.refresh(repo);
+    await this.manager.refresh(repo, true);
     return step.kind === 'pull' ? 'pulled' : `on ${e.branch}`;
   }
 

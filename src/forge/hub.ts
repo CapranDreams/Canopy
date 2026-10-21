@@ -2,6 +2,9 @@ import * as vscode from 'vscode';
 import type { Repo } from '../repo';
 import { ForgeInfo, ForgeKind, ForgeProvider, ForgeState } from './types';
 
+/** How long after a push the server usually needs to create the commit's pipeline / checks. */
+const PIPELINE_START_DELAY_MS = 5000;
+
 /** Routes each repository to the service (GitLab or GitHub) that hosts its remote. */
 export class ForgeHub implements vscode.Disposable {
   private readonly _onDidChange = new vscode.EventEmitter<Repo | undefined>();
@@ -13,7 +16,29 @@ export class ForgeHub implements vscode.Disposable {
   }
 
   dispose(): void {
+    this.pushTimers.forEach((t) => clearTimeout(t));
     this.disposables.forEach((d) => d.dispose());
+  }
+
+  private readonly pushTimers = new Set<NodeJS.Timeout>();
+
+  /**
+   * Re-reads pipeline and merge/pull request status when the remote was just contacted, instead of polling:
+   * after a fetch the user asked for, and after a push (again a few seconds later, once the server has
+   * created the pipeline for the pushed commit).
+   */
+  followRemoteActivity(event: vscode.Event<{ repo: Repo; reason: 'fetch' | 'push' }>): void {
+    this.disposables.push(
+      event(({ repo, reason }) => {
+        void this.refresh(repo);
+        if (reason !== 'push') return;
+        const t = setTimeout(() => {
+          this.pushTimers.delete(t);
+          void this.refresh(repo);
+        }, PIPELINE_START_DELAY_MS);
+        this.pushTimers.add(t);
+      })
+    );
   }
 
   get(kind: ForgeKind): ForgeProvider {

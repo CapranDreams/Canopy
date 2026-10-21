@@ -37,6 +37,9 @@ export class DetailPanel implements vscode.Disposable {
   private postTimer: NodeJS.Timeout | undefined;
   private graphKey = '';
   private graphCache: unknown;
+  /** Branches, stashes and line counts from the last post; reused while only activity or forge state changed. */
+  private extras: { key: string; activity: number; stashes: Awaited<ReturnType<typeof listStashes>>; branchList: Awaited<ReturnType<typeof listBranches>>; wipStats: WipStats } | undefined;
+  private forceExtras = false;
   /** Last render reported by the webview (used by tests and to surface script errors). */
   lastRender: { rows: number; files: number } | undefined;
   private forgeService: ForgeHub | undefined;
@@ -109,8 +112,9 @@ export class DetailPanel implements vscode.Disposable {
     }
     this.panel.title = `CANOPY · ${repo.name}`;
     if (changed) void this.panel.webview.postMessage({ type: 'switching', name: repo.name });
+    this.forceExtras = true;
     this.schedulePost(0);
-    void this.manager.refresh(repo);
+    void this.manager.refresh(repo, true);
   }
 
   private schedulePost(delay = 150): void {
@@ -123,13 +127,23 @@ export class DetailPanel implements vscode.Disposable {
 
   private async post(): Promise<void> {
     const r = this.repo;
-    if (!r || !this.panel) return;
+    // Hidden panels do no git work; onDidChangeViewState posts again when the panel is shown.
+    if (!r || !this.panel || !this.panel.visible) return;
+    // Reload branches, stashes and line counts when status moved, an operation just finished, or on demand;
+    // a starting operation or a forge update alone reuses the last result.
+    const key = JSON.stringify([r.root, r.status, r.lastCommitTime, r.lastFetch, r.operation]);
+    const activity = r.activity.length;
+    const prev = this.extras;
+    const reuse = !this.forceExtras && prev && prev.key === key && activity >= prev.activity;
+    this.forceExtras = false;
     const [graph, stashes, branchList, wipStats] = await Promise.all([
       this.loadGraph(r),
-      listStashes(r).catch(() => []),
-      listBranches(r).catch(() => []),
-      this.wipLineStats(r).catch((): WipStats => ({ head: new Map(), staged: new Map(), unstaged: new Map() }))
+      reuse ? prev.stashes : listStashes(r).catch(() => []),
+      reuse ? prev.branchList : listBranches(r).catch(() => []),
+      reuse ? prev.wipStats : this.wipLineStats(r).catch((): WipStats => ({ head: new Map(), staged: new Map(), unstaged: new Map() }))
     ]);
+    if (this.repo !== r) return;
+    this.extras = { key, activity, stashes, branchList, wipStats };
     // for-each-ref already sorts newest first; keep that order within local and remote.
     const branches = {
       local: branchList.filter((b) => !b.remote).map((b) => ({ name: b.name, time: b.time, current: b.current, upstream: b.upstream ?? null })),
@@ -176,7 +190,8 @@ export class DetailPanel implements vscode.Disposable {
   }
 
   private async loadGraph(r: Repo): Promise<unknown> {
-    const key = JSON.stringify([r.root, this.scope, r.status?.oid, r.upstream, r.ahead, r.behind, r.lastFetch, r.changed > 0, r.lastCommitTime]);
+    // A fetch only matters to the graph when it shows every branch; HEAD and upstream views follow ahead/behind.
+    const key = JSON.stringify([r.root, this.scope, r.status?.oid, r.upstream, r.ahead, r.behind, this.scope === 'all' ? r.lastFetch : 0, r.changed > 0, r.lastCommitTime]);
     if (key === this.graphKey && this.graphCache) return this.graphCache;
     const max = vscode.workspace.getConfiguration('canopy').get<number>('graph.maxCommits', 300);
     const range =
@@ -300,7 +315,8 @@ export class DetailPanel implements vscode.Disposable {
         break;
       case 'refresh':
         this.graphKey = '';
-        await this.manager.refresh(r);
+        this.forceExtras = true;
+        await this.manager.refresh(r, true);
         this.schedulePost(0);
         break;
     }

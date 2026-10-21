@@ -49,7 +49,7 @@ The most urgent state also shows as a colored badge at the right edge, and the r
 - **Submodules** appear nested under their parent repository with a teal submodule icon and their own branch and status. Hover any repository or submodule and click the branch icon to switch branches; a yellow `≠` means a submodule is at a different commit than its parent records.
 - **Sort** by attention, recent activity, most changes, alphabetical or your own order, from **Sort By…** or the **Filter** picker. **Group by status** to see Conflicts, Incoming, Local changes and Unpushed at a glance.
 - **Filter** by status, or with a query such as `is:dirty age<7d`.
-- **Fetch All** (and automatic fetching every few minutes) keeps the counts current. The activity bar badge and status bar show totals.
+- **Fetch All** keeps the counts current (automatic background fetching is available as an opt-in setting). The activity bar badge and status bar show totals.
 
 ## Every Git operation, one click away
 
@@ -122,15 +122,17 @@ Example: `folder:Platform (is:behind OR pipeline:failed)`
 |---|---|---|
 | `canopy.scanRoots` | `[]` | Extra folders to scan for repositories |
 | `canopy.scanDepth` | `3` | How deep to look below each folder |
-| `canopy.autoFetch.intervalMinutes` | `5` | Automatic fetch interval (`0` turns it off) |
+| `canopy.autoFetch.intervalMinutes` | `0` | Background fetch interval; off by default, like VS Code's `git.autofetch` |
+| `canopy.fetchAllConcurrency` | `12` | Repositories **Fetch All** fetches at once (`0` = all at once) |
+| `canopy.refreshIntervalSeconds` | `0` | Fallback status polling; off by default (file watching keeps status current) |
 | `canopy.bulkPullMode` | `ff-only` | How pulls behave across several repositories |
 | `canopy.discard.safetyStash` | `true` | Stash changes before discarding them |
 | `canopy.graph.maxCommits` | `300` | Commits shown in the graph |
-| `canopy.gitlab.refreshMinutes` | `3` | How often GitLab status refreshes |
+| `canopy.gitlab.refreshMinutes` | `0` | Timed GitLab status refresh; off by default (refreshes on Fetch, Refresh and push) |
 | `canopy.gitlab.cloneProtocol` | `https` | `https` or `ssh` for group clones |
-| `canopy.github.refreshMinutes` | `3` | How often GitHub status refreshes |
+| `canopy.github.refreshMinutes` | `0` | Timed GitHub status refresh; off by default (refreshes on Fetch, Refresh and push) |
 | `canopy.github.cloneProtocol` | `https` | `https` or `ssh` for organization clones |
-| `canopy.maxConcurrentGit` | `6` | Background Git processes run at once |
+| `canopy.maxConcurrentGit` | `6` | Status-reading Git processes run at once |
 
 All settings are listed under **CANOPY** in the Settings editor.
 

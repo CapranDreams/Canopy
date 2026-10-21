@@ -116,6 +116,7 @@ export function registerCommands(d: Deps): vscode.Disposable[] {
     reg('refresh', async () => {
       await manager.discover();
       await manager.refreshAll();
+      forge.refreshVisible(true);
     }),
     reg('scanForRepositories', async () => {
       await manager.discover();

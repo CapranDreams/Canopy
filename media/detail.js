@@ -173,43 +173,85 @@
   }
 
   let measuring = false;
+  /**
+   * The repo view is a fixed skeleton of sections (display: contents, so layout is unchanged). Each render
+   * builds every section's markup but only replaces the sections whose markup changed, so a spinner or a
+   * pipeline update leaves the graph, its scroll position, hover and the commit message box alone.
+   */
+  const SECTIONS = ['crumb', 'head', 'toolbar', 'banner', 'changes', 'graph', 'ctx'];
+  const SKELETON = `<div class="page">
+      <div class="sec" data-sec="crumb"></div><div class="sec" data-sec="head"></div><div class="sec" data-sec="toolbar"></div><div class="sec" data-sec="banner"></div>
+      <div class="body"><div class="sec" data-sec="changes"></div><div class="sec" data-sec="graph"></div></div>
+    </div><div class="sec" data-sec="ctx"></div>`;
+  /** @type {Record<string, string>} Markup currently shown per section. */
+  let shown = {};
+  /** Repo whose draft the live commit message box holds (it is kept across re-renders of the Changes card). */
+  let msgRoot = '';
+
   function render() {
     if (!state) return;
-    if (view === 'profiles') return renderProfilesShell();
+    if (view === 'profiles') {
+      shown = {};
+      return renderProfilesShell();
+    }
     profilesRoot.hidden = true;
     const r = state.repo;
     MENUS.forge = r.forge && r.forge.kind === 'connected' ? forgeMenu(r.forge) : [];
     MENUS.branch = branchMenu(state.branches);
-    const focus = captureFocus();
-    const scroll = /** @type {HTMLElement|null} */ (app.querySelector('.rows'))?.scrollTop ?? 0;
-    app.className = '';
-    app.innerHTML = `<div class="page">
-      <div class="crumb"><span>${esc(r.crumb)}</span><span class="version" title="CANOPY version">CANOPY ${esc(state.version || '')}</span></div>
-      <div class="title">
+    /** @type {Record<string, string>} */
+    const html = {
+      crumb: `<div class="crumb"><span>${esc(r.crumb)}</span><span class="version" title="CANOPY version">CANOPY ${esc(state.version || '')}</span></div>`,
+      head: `<div class="title">
         <h1>${esc(r.name)}</h1>
         <span class="branch">${icon('branch')}${esc(r.branchLabel)}</span>
         ${r.upstream ? `<span class="mono muted">→ ${esc(r.upstream)}</span>` : r.branch && r.remotes.length ? '<span class="muted">not published</span>' : ''}
       </div>
       ${forgeChips(r)}
-      <div class="meta"><span class="mono">${esc(r.root)}</span>${r.fetching ? '<span>fetching…</span>' : r.lastFetch ? `<span>fetched ${ago(r.lastFetch)}</span>` : ''}${r.stashCount ? `<span>${r.stashCount} stash${r.stashCount === 1 ? '' : 'es'}</span>` : ''}</div>
-      ${toolbar(r)}
-      ${banner(r)}
-      <div class="body">
-        ${changesCard(r)}
-        ${graphCard()}
-      </div>
-    </div>
-    ${ctx ? contextMenu() : ''}`;
-    const rows = /** @type {HTMLElement|null} */ (app.querySelector('.rows'));
-    if (rows) rows.scrollTop = scroll;
+      <div class="meta"><span class="mono">${esc(r.root)}</span>${r.fetching ? '<span>fetching…</span>' : r.lastFetch ? `<span>fetched ${ago(r.lastFetch)}</span>` : ''}${r.stashCount ? `<span>${r.stashCount} stash${r.stashCount === 1 ? '' : 'es'}</span>` : ''}</div>`,
+      toolbar: toolbar(r),
+      banner: banner(r),
+      changes: changesCard(r),
+      graph: graphCard(),
+      ctx: ctx ? contextMenu() : ''
+    };
+    if (!app.querySelector('[data-sec="graph"]')) {
+      // First render, or back from the Profiles tab.
+      app.className = '';
+      app.innerHTML = SKELETON;
+      shown = {};
+    }
+    const focus = captureFocus();
+    const scroll = /** @type {HTMLElement|null} */ (app.querySelector('.rows'))?.scrollTop ?? 0;
+    const oldMsg = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('msg'));
+    const changed = SECTIONS.filter((k) => shown[k] !== html[k]);
+    for (const k of changed) {
+      const el = /** @type {HTMLElement} */ (app.querySelector(`[data-sec="${k}"]`));
+      el.innerHTML = html[k];
+      shown[k] = html[k];
+      // Re-rendering replaces a spinning icon; phase it to the clock so the rotation never visibly restarts.
+      for (const s of /** @type {SVGElement[]} */ ([...el.querySelectorAll('.i.spin')])) s.style.animationDelay = `-${Date.now() % 900}ms`;
+    }
+    if (changed.includes('changes')) {
+      const msg = /** @type {HTMLTextAreaElement|null} */ (document.getElementById('msg'));
+      if (msg && oldMsg && msgRoot === r.root) {
+        // Keep the box the user is typing in (value, size, cursor, undo history); take the new placeholder.
+        oldMsg.placeholder = msg.placeholder;
+        msg.replaceWith(oldMsg);
+      } else if (msg) {
+        msg.value = drafts[r.root] || '';
+      }
+      msgRoot = r.root;
+    }
+    if (changed.includes('graph')) {
+      const rows = /** @type {HTMLElement|null} */ (app.querySelector('.rows'));
+      if (rows) rows.scrollTop = scroll;
+    }
     if (revealFiles) {
       revealFiles = false;
       /** @type {HTMLElement|null} */ (app.querySelector('.cfiles'))?.scrollIntoView({ block: 'nearest' });
     }
-    positionContextMenu();
-    restoreFocus(focus);
-    // Re-rendering replaces the spinning icon; phase it to the clock so the rotation never visibly restarts.
-    for (const el of /** @type {SVGElement[]} */ ([...app.querySelectorAll('.i.spin')])) el.style.animationDelay = `-${Date.now() % 900}ms`;
+    if (changed.includes('ctx')) positionContextMenu();
+    if (focus && document.activeElement?.id !== focus.id) restoreFocus(focus);
     if (view === 'stats' && stats.data && !measuring && measureCharts()) {
       measuring = true;
       render();
@@ -328,7 +370,6 @@
 
   function changesCard(r) {
     const total = new Set([...r.staged, ...r.unstaged, ...r.conflicts].map((f) => f.path)).size;
-    const draft = drafts[r.root] || '';
     const section = (title, list, kind, headerActs) =>
       list.length
         ? `<div><div class="sec-h">${esc(title)} <span class="count">${list.length}</span><span class="spacer"></span>${headerActs}</div>${list.map((f) => fileRow(f, kind)).join('')}</div>`
@@ -337,7 +378,7 @@
       <div class="card-h"><h2>Changes</h2><span class="muted">${total ? total + ' file' + (total === 1 ? '' : 's') : ''}</span><span class="spacer"></span>
         <button class="icon-btn" data-act="stage-all" title="Stage all changes" aria-label="Stage all changes">${icon('plus')}</button>
         <button class="btn small danger" data-act="discard-all" ${r.unstaged.length ? '' : 'disabled'} title="${state.safetyStash ? 'A safety stash is saved first' : 'Cannot be undone'}">${icon('discard')}Discard all</button></div>
-      <textarea class="msg" id="msg" rows="2" placeholder="Message (Ctrl+Enter to commit on ${esc(r.branchLabel)})">${esc(draft)}</textarea>
+      <textarea class="msg" id="msg" rows="2" placeholder="Message (Ctrl+Enter to commit on ${esc(r.branchLabel)})"></textarea>
       <div class="split">
         <button class="btn primary" data-act="commit" ${total ? '' : 'disabled'}>Commit${r.staged.length ? '' : total ? ' All' : ''}</button>
         <button class="btn primary" data-menu="commit" aria-label="More commit options" aria-haspopup="menu">${icon('chev')}</button>
